@@ -41,10 +41,6 @@ tgsfilter -i ont.fq.gz -q 7 -l 20000 -o ont.filtered.fq.gz
 tgsfilter -i HIFI.fq.gz -q 20 -l 10000 -o HIFI.filtered.fq.gz
 ```
 
-### 3.3 Other options
-The '-A' parameter outputs quality values in fastq format, while the default is to output files in fasta format.<br>
-The '-c' parameter compresses the output file, and by default, the output file is uncompressed.
-
 ## 4. License
 -------
 
