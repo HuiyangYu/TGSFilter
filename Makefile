@@ -7,13 +7,13 @@ OS := $(shell uname -s)
 
 .PHONY: all clean
 
-all: $(BIN_DIR)/hfkreads
+all: $(BIN_DIR)/tgsfilter
 
-$(BIN_DIR)/hfkreads: $(SRC_DIR)/HFKReads.cpp | $(BIN_DIR)
+$(BIN_DIR)/tgsfilter: $(SRC_DIR)/TGSFilter.cpp | $(BIN_DIR)
 ifeq ($(OS),Darwin)
-	g++ --std=c++11 -g -O3 $< -lz -pthread -I$(INCLUDE_DIR) -o $@
+	g++ --std=c++11 -g -O3 $< -lz -ldeflate -pthread -I$(INCLUDE_DIR) -o $@  -lz
 else
-	g++ -L$(LIB_DIR) -Wl,-rpath=$(LIB_DIR) --std=c++11 -g -O3 $< -lz -pthread -I$(INCLUDE_DIR) -o $@
+	g++ -L$(LIB_DIR) -Wl,-rpath=$(LIB_DIR) --std=c++11 -g -O3 $< -lz -ldeflate -pthread -I$(INCLUDE_DIR) -o $@
 endif
 
 $(BIN_DIR):
