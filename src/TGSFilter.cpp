@@ -2,7 +2,6 @@
 #include <fstream>
 #include <vector>
 #include <string>
-#include <regex>
 #include <cmath>
 #include <unistd.h>
 #include <thread>
@@ -19,7 +18,7 @@ int  TGSFilter_usage() {
 		"Usage: tgsfilter -1 TGS_reads.fq.gz -o OutFile.fq.gz\n"
 		" Options:\n"
 		"   -i	<str>   input of fasta/q file\n"
-		"   -o	<str>   output file\n"
+		"   -o	<str>   output of fasta/fastq file\n"
 		"   -q	<int>   min Phred average quality score [10]\n"
 		"   -l	<int>   min length of read [100]\n"
 		"   -s	<int>   Trim N nucleotides from the start of a read [0]\n"
@@ -30,7 +29,6 @@ int  TGSFilter_usage() {
 	return 1;
 }
 
-
 inline string add_Asuffix (string path) {
 	string ext =path.substr(path.rfind('.') ==string::npos ? path.length() : path.rfind('.') + 1);
 	if (ext != "gz")
@@ -39,7 +37,6 @@ inline string add_Asuffix (string path) {
 	}
 	return path ;
 }
-
 
 int n_thread=1;
 int VECMAX =1024*8;
@@ -72,6 +69,18 @@ inline void  LogLackArg(string flag){
 	cerr << "Error: Lack Argument for [ -"<<flag<<" ]"<<endl;
 }
 
+string & replace_all(string & str, const string & pattern, const string & replacement) {
+	while(true) {
+		string::size_type  pos(0);
+		if((pos=str.find(pattern))!=string::npos){
+			str.replace(pos,pattern.length(),replacement);
+		} else{
+			break;
+		}
+	}
+	return str;
+}
+
 int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In){
 	if (argc <= 2) {TGSFilter_usage(); return 1;}
 
@@ -82,10 +91,7 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In){
 		}
 
 		string flag=argv[i] ;
-		regex pattern("-");
-		string replacement="";
-		flag = regex_replace(flag, pattern, replacement);
-
+		flag=replace_all(flag,"-","");
 		//input and output options
 		if (flag == "i" ){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
@@ -858,14 +864,12 @@ int Run_TGSFilter(Para_A24 * P2In) {
 	else if (Infq==0) {
 		readLen=GetReadLen(P2In, Ingz);
 	}
-	if (VECMAX == 1024*100)
-	{
-		if (readLen>=300000)
-		{
+	
+	if (VECMAX == 1024*100) {
+		if (readLen>=300000){
 			VECMAX=1024*10;
 		} 
-		else if (readLen<500)
-		{
+		else if (readLen<500) {
 			VECMAX=1024*1000;
 		}
 	}
