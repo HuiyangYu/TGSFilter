@@ -26,7 +26,7 @@ int  TGSFilter_usage() {
 		"   -s	<int>   Trim N nucleotides from the start of a read [0]\n"
 		"   -e	<int>   Trim N nucleotides from the end of a read [0]\n"
 		"   -t          number of threads [1]\n"
-		"   -h          show help [v1.03]\n"
+		"   -h          show help [v1.04]\n"
 		"\n";
 	return 1;
 }
@@ -40,7 +40,7 @@ inline string add_Asuffix (string path) {
 }
 
 int n_thread=1;
-int VECMAX =1024*8;
+int VECMAX =1024;
 int BATCH_SIZE = VECMAX;
 int BinWind = VECMAX;
 
@@ -315,10 +315,11 @@ int  CalcAvgQuality(const string& qual) {
 
 
 
-void FilterFQFQGZ(Para_A24 * para_, bool & pass_, uint8_t * ComPresseData, size_t & CompressedSize, int & start_, int & end_, vector <string> & id_, vector <string> & seq_, vector <string> & qual_){
+void FilterFQFQGZ(Para_A24 * para_, bool & pass_, uint8_t * ComPresseData, size_t & CompressedSize,size_t &  OUT_BUFFER_SIZE , int & start_, int & end_, vector <string> & id_, vector <string> & seq_, vector <string> & qual_){
 	int headCrop = para_->HeadCrop;
 	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	string  Data="";
+	string  Data=""; Data.reserve(OUTPUT_BUFFER_SIZE);
+
 	for (int i = start_; i < end_; i++) {
 		int seqLen = seq_[i].length();
 		int qualLen = qual_[i].length();
@@ -348,15 +349,15 @@ void FilterFQFQGZ(Para_A24 * para_, bool & pass_, uint8_t * ComPresseData, size_
 		pass_ = true;
 		DeflateCompress  GZData ;
 		size_t inputSize  = Data.length();
-		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize);
+		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize,OUT_BUFFER_SIZE);
 	}
 }
 
-void FilterFQFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , size_t & CompressedSize  , int & start_, int & end_, vector <string> & id_, vector <string> & seq_, vector <string> & qual_)
+void FilterFQFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , size_t & CompressedSize ,size_t &  OUT_BUFFER_SIZE  , int & start_, int & end_, vector <string> & id_, vector <string> & seq_, vector <string> & qual_)
 {
 	int headCrop = para_->HeadCrop;
 	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	string  Data="";
+	string  Data=""; Data.reserve(OUTPUT_BUFFER_SIZE);
 	for (int i = start_; i < end_; i++) 
 	{
 		int seqLen = seq_[i].length();
@@ -388,16 +389,14 @@ void FilterFQFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , 
 		pass_ = true;
 		DeflateCompress  GZData ;
 		size_t inputSize  = Data.length();
-		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize);
+		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize,OUT_BUFFER_SIZE);
 	}
 }
 
-
-
-void FilterFAFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , size_t & CompressedSize, int & start_, int & end_, vector <string> & id_, vector <string> & seq_){
+void FilterFAFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , size_t & CompressedSize,size_t &  OUT_BUFFER_SIZE , int & start_, int & end_, vector <string> & id_, vector <string> & seq_){
 	int headCrop = para_->HeadCrop;
 	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	string  Data="";
+	string  Data=""; Data.reserve(OUTPUT_BUFFER_SIZE);
 	for (int i = start_; i < end_; i++) {
 		int seqLen = seq_[i].length();
 		if ((totalCrop >= seqLen)) {
@@ -421,7 +420,7 @@ void FilterFAFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , 
 		pass_ = true;
 		DeflateCompress GZData ;
 		size_t inputSize = Data.length();
-		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize);
+		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize,OUT_BUFFER_SIZE);
 	}
 }
 
@@ -534,10 +533,12 @@ int Run_fasta(Para_A24 * P2In, int &Ingz, int &Outgz) {
 		int AA;
 		uint8_t ** ComPresseData = new uint8_t*[n_thread];
 		size_t * CompressedSize =new size_t [n_thread];
+		size_t * OUT_BUFFER_SIZE =new size_t [n_thread];
 
 		for (int i = 0; i < n_thread; i++) {
 			ComPresseData[i] = new uint8_t[OUTPUT_BUFFER_SIZE];
 			CompressedSize[i]=OUTPUT_BUFFER_SIZE;
+			OUT_BUFFER_SIZE[i]=OUTPUT_BUFFER_SIZE;
 		}
 
 		while((AA = kseq_read(seqFA)) >= 0 ) {
@@ -560,9 +561,7 @@ int Run_fasta(Para_A24 * P2In, int &Ingz, int &Outgz) {
 						continue;
 					}
 
-					threads.push_back(thread(FilterFAFAGZ, P2In, ref(PASS[i]),
-					ComPresseData[i], ref(CompressedSize[i]), ref(Start[i]),
-					ref(End[i]), ref(ID), ref(SEQ)));
+					threads.push_back(thread(FilterFAFAGZ, P2In, ref(PASS[i]),ComPresseData[i], ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]), ref(Start[i]),ref(End[i]), ref(ID), ref(SEQ)));
 
 				}
 
@@ -570,7 +569,6 @@ int Run_fasta(Para_A24 * P2In, int &Ingz, int &Outgz) {
 					thread.join();
 				}
 				threads.clear();
-
 				for (int i = 0; i < n_thread; i++) {
 					if (PASS[i]) {
 						OUTH.writeGZIO ( ComPresseData[i] , CompressedSize[i] );
@@ -591,10 +589,7 @@ int Run_fasta(Para_A24 * P2In, int &Ingz, int &Outgz) {
 				if (Start[i]>=End[i]) {
 					continue;
 				}
-
-				threads.push_back(thread(FilterFAFAGZ,P2In,ref(PASS[i]),
-				ComPresseData[i],ref(CompressedSize[i]),
-				ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ)));
+				threads.push_back(thread(FilterFAFAGZ, P2In, ref(PASS[i]),ComPresseData[i], ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]), ref(Start[i]),ref(End[i]), ref(ID), ref(SEQ)));
 			}
 
 			for (auto& thread : threads){
@@ -724,6 +719,7 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 
 	vector<thread> threads;
 
+
 	int * Start =new int [n_thread];
 	int * End =new int [n_thread];
 	bool *PASS =new bool [BATCH_SIZE];
@@ -746,9 +742,11 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 
 		uint8_t ** ComPresseData = new uint8_t*[n_thread];
 		size_t * CompressedSize =new size_t [n_thread];
+		size_t * OUT_BUFFER_SIZE =new size_t [n_thread];
 		for (int i = 0; i < n_thread; i++) {
 			ComPresseData[i] = new uint8_t[OUTPUT_BUFFER_SIZE];
 			CompressedSize[i]=OUTPUT_BUFFER_SIZE;
+			OUT_BUFFER_SIZE[i]=OUTPUT_BUFFER_SIZE;
 		}
 
 		if (Outfq==1) {
@@ -779,9 +777,7 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 						if (Start[i]>=End[i]) {
 							continue;
 						}
-						threads.push_back(std::thread(FilterFQFQGZ,P2In,ref(PASS[i]),
-						ComPresseData[i],ref(CompressedSize[i]),ref(Start[i]),
-						ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
+						threads.push_back(std::thread(FilterFQFQGZ,P2In,ref(PASS[i]),ComPresseData[i],ref(CompressedSize[i]), ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
 					}
 					for (auto& thread : threads) {
 						thread.join();
@@ -807,7 +803,7 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 					if (Start[i]>=End[i]) {
 						continue;
 					}
-					threads.push_back(std::thread(FilterFQFQGZ,P2In,std::ref(PASS[i]),ComPresseData[i],std::ref(CompressedSize[i]),std::ref(Start[i]),std::ref(End[i]),std::ref(ID),std::ref(SEQ),std::ref(QUAL)));
+					threads.push_back(std::thread(FilterFQFQGZ,P2In,ref(PASS[i]),ComPresseData[i],ref(CompressedSize[i]), ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
 				}
 
 				for (auto& thread : threads){
@@ -854,7 +850,7 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 							continue;
 						}
 						threads.push_back(thread(FilterFQFAGZ,P2In,ref(PASS[i]),
-						ComPresseData[i],ref(CompressedSize[i]),ref(Start[i]),
+						ComPresseData[i],ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),
 						ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
 					}
 					for (auto& thread : threads) {
@@ -881,7 +877,7 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 						continue;
 					}
 					threads.push_back(thread(FilterFQFAGZ,P2In,ref(PASS[i]),
-					ComPresseData[i],ref(CompressedSize[i]),ref(Start[i]),
+					ComPresseData[i],ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),
 					ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
 				}
 
@@ -903,10 +899,10 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 		for (int i = 0; i < n_thread; i++) {
 			delete[]  ComPresseData[i] ;
 		}
-
-		delete [] ComPresseData ;
+		
 		delete [] CompressedSize ;
-
+		delete [] OUT_BUFFER_SIZE;
+		delete [] ComPresseData ;
 	} 
 	else {	
 		ofstream OUTH;
@@ -1049,12 +1045,13 @@ int Run_TGSFilter(Para_A24 * P2In)
 		readLen=GetReadLen(P2In, Ingz);
 	}
 
-	if (VECMAX == 1024*8) {
-		if (readLen>=300000) {
-			VECMAX=1024*8;
+	if (VECMAX == 1024) {
+		if (readLen>=1000) {
+			VECMAX=8;
 		} 
-		else if (readLen<500) {
-			VECMAX=1024*1000;
+		else
+		{
+			VECMAX=1024;
 		}
 	}
 
@@ -1064,6 +1061,7 @@ int Run_TGSFilter(Para_A24 * P2In)
 
 	if (Infq==1) {
 		Run_fastq(P2In, Ingz, Outgz, Outfq);
+		cerr<<"done Run FQ"<<endl;
 	}
 	else if (Infq==0) {
 		if (Outfq==1) {
