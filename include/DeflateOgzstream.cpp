@@ -87,11 +87,23 @@ class DeflateCompress{
 			libdeflate_free_compressor(m_compressor);
 		}
 
-		bool compressData(const void* input, size_t inputSize, uint8_t * m_outputBuffer, size_t & compressedSize) {
-			if (!m_compressor || !input || inputSize == 0) {
+		bool compressData(const void* input, size_t inputSize, uint8_t * m_outputBuffer, size_t & compressedSize, size_t & OUT_BUFFER_SIZE) 
+		{
+			if (!m_compressor || !input || inputSize == 0) 
+			{
 				return false;
 			}
-			compressedSize = libdeflate_gzip_compress(m_compressor, input, inputSize, m_outputBuffer, OUTPUT_BUFFER_SIZE);
+			//cerr<<inputSize<<"\t"<<OUT_BUFFER_SIZE<<endl;
+		/*
+			if (OUT_BUFFER_SIZE<16*inputSize)
+			{
+				cerr<<inputSize<<"\t"<<OUT_BUFFER_SIZE<<endl;
+				OUT_BUFFER_SIZE=16*inputSize;
+		//		delete [] m_outputBuffer;
+		//		m_outputBuffer=new uint8_t[OUT_BUFFER_SIZE];
+			}
+			//*/
+			compressedSize = libdeflate_gzip_compress(m_compressor, input, inputSize, m_outputBuffer, OUT_BUFFER_SIZE);
 			if (compressedSize == 0) {
 				return false;
 			}
