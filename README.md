@@ -44,4 +44,4 @@ tgsfilter -i HIFI.fq.gz -q 20 -l 10000 -o HIFI.filtered.fq.gz
 ## 4. License
 -------
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
+This project is licensed under the GPL-3.0 license - see the [LICENSE](LICENSE) file for details
