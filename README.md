@@ -7,7 +7,7 @@
 wget -c https://github.com/HuiyangYu/TGSFilter/releases/download/v1.03/TGSFilter-1.013-Linux-x86_64.tar.gz
 tar zvxf TGSFilter-1.03-Linux-x86_64.tar.gz
 cd TGSFilter-1.03-Linux-x86_64
-./hfkreads -h
+./tgsfilter -h
 ```
 ### (2) Building from source （Linux or Mac）
 ```
