@@ -27,8 +27,8 @@ Usage: tgsfilter -1 TGS_reads.fq.gz -o OutFile.fq.gz
    -l	<int>   min length of read [100]
    -s	<int>   Trim N nucleotides from the start of a read [0]
    -e	<int>   Trim N nucleotides from the end of a read [0]
-   -t         number of threads [1]
-   -h         show help [v1.05]
+   -t           number of threads [1]
+   -h           show help [v1.05]
 ```
 ## 3. Example
 
