@@ -7,8 +7,8 @@
 #include <thread>
 #include <algorithm>
 #include <unistd.h>
+#include <zlib.h>
 #include "kseq.h"
-#include "gzstream.C"
 #include "DeflateOgzstream.cpp"
 
 using namespace std;
@@ -25,8 +25,8 @@ int  TGSFilter_usage() {
 		"   -l	<int>   min length of read [100]\n"
 		"   -s	<int>   Trim N nucleotides from the start of a read [0]\n"
 		"   -e	<int>   Trim N nucleotides from the end of a read [0]\n"
-		"   -t          number of threads [1]\n"
-		"   -h          show help [v1.04]\n"
+		"   -t           number of threads [1]\n"
+		"   -h           show help [v1.05]\n"
 		"\n";
 	return 1;
 }
@@ -40,27 +40,34 @@ inline string add_Asuffix (string path) {
 }
 
 int n_thread=1;
-int VECMAX =1024;
+int VECMAX =512000; //bp 
 int BATCH_SIZE = VECMAX;
 int BinWind = VECMAX;
 
 class Para_A24 {
 	public:
 		int minQ;
+		int ReadLength;
 		int MinLength;
 		int HeadCrop;
 		int TailCrop;
 		int AverQ;
+		int Infq;
+		int Outfq;
+		bool OUTGZ;
 		string InFile;
 		string OutFile;
 
-		Para_A24()
-		{	
+		Para_A24() {	
 			minQ=10;
+			ReadLength=0;
 			MinLength=100;
 			HeadCrop=0;
 			TailCrop=0;
 			AverQ=0;
+			Infq=2;
+			Outfq=2;
+			OUTGZ=false;
 			InFile="";
 			OutFile="";
 		}
@@ -136,7 +143,7 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			n_thread=atoi(argv[i]);
 		}
 		else if (flag  ==  "u") {
-			if(i + 1 == argc) { LogLackArg(flag) ; return 1;}
+			if(i + 1 == argc) {LogLackArg(flag) ; return 1;}
 			i++;
 			VECMAX=atoi(argv[i]);
 		}
@@ -179,18 +186,12 @@ string GetFileExtension(const string& FilePath) {
 	}
 }
 
-pair<int, int> GetFileType(const string& FilePath) {
+int GetFileType(const string& FilePath) {
 	int fqfile=2;
-	int gzfile=2;
 	string ext = GetFileExtension(FilePath);
-
 	if (ext == "gz") {
-		gzfile = 1;
 		string FilePathA = FilePath.substr(0, FilePath.rfind('.'));
 		ext = GetFileExtension(FilePathA);
-	}
-	else {
-		gzfile= 0;
 	}
 
 	if ((ext == "fq") || (ext == "fastq")) {
@@ -199,76 +200,29 @@ pair<int, int> GetFileType(const string& FilePath) {
 	else if ((ext == "fa") || (ext == "fasta")) {
 		fqfile = 0;
 	}
-	return make_pair(fqfile, gzfile);
+	return fqfile;
 }
 
-int GetReadLen(Para_A24 * P2In, int &Ingz){
-	igzstream INH ((P2In->InFile).c_str(),ifstream::in);
-	INH.rdbuf()->pubsetbuf(nullptr, 1024*8);
-	if (INH.fail()) {
-		cerr << "Error: Can't open input file: " << (P2In->InFile) << endl;
-		return  -1;
-	}
+int Get_qType(Para_A24 * P2In){
+
+	gzFile fp;
+  	kseq_t *seq;
+  	int len;
+
+	fp = gzopen((P2In->InFile).c_str(), "r");
+  	seq = kseq_init(fp);
 
 	int seqNum=0;
 	int maxSeq=5000;
 	int minQ=50000;
 	int maxQ=0;
 	int Lengths[maxSeq];
-
-	string id, seq;
-
-	for (int A=1; A<maxSeq && (!INH.eof()); A++) {
-		getline(INH, id);
-		getline(INH, seq);
-
-		if (id.empty()) {continue;}
+	string qual;
+	for (int A=0 ; A<(maxSeq) && ((len = kseq_read(seq)) >= 0); A++){
+		Lengths[seqNum]=(seq->seq.l);
 		seqNum++;
-		int seqlLen = seq.length();
-		Lengths[seqNum]=seqlLen;
-	}
-
-	INH.close();
-
-	sort(Lengths, Lengths + maxSeq);
-	int middleIndex = maxSeq / 2;
-	int middleValue = Lengths[middleIndex];
-
-	return middleValue;
-}
-
-pair<int, int> GetQtype(Para_A24 * P2In, int &Ingz) {
-
-	igzstream INH ((P2In->InFile).c_str(),ifstream::in);
-	INH.rdbuf()->pubsetbuf(nullptr, 1024*8);
-	if (INH.fail()) {
-		cerr << "Error: Can't open input file: " << (P2In->InFile) << endl;
-		return  make_pair(-1, -1);;
-	}
-
-	int seqNum=0;
-	int maxSeq=1000;
-	int minQ=50000;
-	int maxQ=0;
-	int Lengths[maxSeq];
-
-	string id, seq, plus, qual;
-
-	for (int A=1; A<maxSeq && (!INH.eof()); A++)
-	{
-		getline(INH, id);
-		getline(INH, seq);
-		getline(INH, plus);
-		getline(INH, qual);
-
-		if (id.empty()) {continue;}
-
-		seqNum++;
-
-		int qualLen = qual.length();
-		Lengths[seqNum]=qualLen;
-
-		for (int i=0; i<qualLen; i++) {
+		qual=seq->qual.s;
+		for (int i=0; i<(seq->qual.l); i++) {
 			if(minQ>qual[i]) {
 				minQ=qual[i];
 			}
@@ -277,28 +231,31 @@ pair<int, int> GetQtype(Para_A24 * P2In, int &Ingz) {
 			}
 		}
 	}
+	kseq_destroy(seq);
+  	gzclose(fp);
 
-	INH.close();
+	sort(Lengths, Lengths + seqNum);
+	int middleIndex = seqNum / 2;
+	P2In->ReadLength = Lengths[middleIndex];
 
-	sort(Lengths, Lengths + maxSeq);
-	int middleIndex = maxSeq / 2;
-	int middleValue = Lengths[middleIndex];
+	int qType=0;
+	if (maxQ>0){
+		if(minQ >= 33 &&  minQ <= 78  &&  maxQ >= 33 && maxQ <= 78) {
+			qType=33;
+		}
+		else if (minQ >= 64  &&  minQ <= 108  &&  maxQ >= 64 && maxQ <= 108){
+			qType=64;
+		}
+		else if (minQ < 55) {
+			qType=33;
+		}
+		else {
+			qType=64;
+		}
+		P2In->AverQ=(P2In->AverQ)+qType;
+	}
 
-	int qType;
-	if(minQ >= 33 &&  minQ <= 78  &&  maxQ >= 33 && maxQ <= 78) {
-		qType=33;
-	}
-	else if (minQ >= 64  &&  minQ <= 108  &&  maxQ >= 64 && maxQ <= 108){
-		qType=64;
-	}
-	else if (minQ < 55) {
-		qType=33;
-	}
-	else {
-		qType=64;
-	}
-
-	return make_pair(qType, middleValue);
+	return maxQ;
 }
 
 int  CalcAvgQuality(const string& qual) {
@@ -313,283 +270,188 @@ int  CalcAvgQuality(const string& qual) {
 	return  int (sumQ) / n;
 }
 
+void Filter_fastq_reads(Para_A24 * P2In, string &OUT_DATA, int Start, int End, 
+						vector<string>& ID, vector <string> &SEQ, vector <string> &QUAL){
+	int headCrop = P2In->HeadCrop;
+	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
 
-
-void FilterFQFQGZ(Para_A24 * para_, bool & pass_, uint8_t * ComPresseData, size_t & CompressedSize,size_t &  OUT_BUFFER_SIZE , int & start_, int & end_, vector <string> & id_, vector <string> & seq_, vector <string> & qual_){
-	int headCrop = para_->HeadCrop;
-	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	string  Data=""; Data.reserve(OUTPUT_BUFFER_SIZE);
-
-	for (int i = start_; i < end_; i++) {
-		int seqLen = seq_[i].length();
-		int qualLen = qual_[i].length();
-		if ((totalCrop >= seqLen) || (seqLen != qualLen)) {
-		}
-		else {
-			seq_[i] = seq_[i].substr(headCrop, seqLen - totalCrop);
-			qual_[i] = qual_[i].substr(headCrop, qualLen - totalCrop);
-			seqLen = seq_[i].length();
-			if (seqLen < (para_->MinLength)) {
-			}
-			else {
-				double avgQuality = CalcAvgQuality(qual_[i]);
-				if (avgQuality < (para_->AverQ)) {
-				}
-				else {
-					Data=Data+id_[i]+"\n" + seq_[i] + "\n+\n" + qual_[i] + "\n";
+	if ((P2In->Outfq)==1){
+		for (int i = Start; i < End; i++) {
+			int seqLen = SEQ[i].length();
+			int qualLen = QUAL[i].length();
+			if ((totalCrop < seqLen) && (seqLen == qualLen)) {
+				SEQ[i] = SEQ[i].substr(headCrop, seqLen - totalCrop);
+				QUAL[i] = QUAL[i].substr(headCrop, qualLen - totalCrop);
+				seqLen = SEQ[i].length();
+				if (seqLen >= (P2In->MinLength)) {
+					double avgQuality = CalcAvgQuality(QUAL[i]);
+					if (avgQuality >= (P2In->AverQ)) {
+						OUT_DATA=OUT_DATA+"@"+ID[i]+"\n" + SEQ[i] + "\n+\n" + QUAL[i] + "\n";
+					}
 				}
 			}
 		}
-	}
-
-	if (Data.empty()) {
-		pass_ = false;
-	}
-	else {
-		pass_ = true;
-		DeflateCompress  GZData ;
-		size_t inputSize  = Data.length();
-		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize,OUT_BUFFER_SIZE);
-	}
-}
-
-void FilterFQFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , size_t & CompressedSize ,size_t &  OUT_BUFFER_SIZE  , int & start_, int & end_, vector <string> & id_, vector <string> & seq_, vector <string> & qual_)
-{
-	int headCrop = para_->HeadCrop;
-	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	string  Data=""; Data.reserve(OUTPUT_BUFFER_SIZE);
-	for (int i = start_; i < end_; i++) 
-	{
-		int seqLen = seq_[i].length();
-		int qualLen = qual_[i].length();
-		if ((totalCrop >= seqLen) || (seqLen != qualLen)) {
-		}
-		else {
-			seq_[i] = seq_[i].substr(headCrop, seqLen - totalCrop);
-			qual_[i] = qual_[i].substr(headCrop, qualLen - totalCrop);
-			seqLen = seq_[i].length();
-			if (seqLen < (para_->MinLength)) {
-			}
-			else {
-				double avgQuality = CalcAvgQuality(qual_[i]);
-				if (avgQuality < (para_->AverQ)) {
-				}
-				else{
-					id_[i][0]='>';
-					Data=Data+id_[i]+"\n" + seq_[i] +"\n";
-				}
-			}
-		}
-	}
-
-	if (Data.empty()) {
-		pass_ = false;
-	}
-	else {
-		pass_ = true;
-		DeflateCompress  GZData ;
-		size_t inputSize  = Data.length();
-		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize,OUT_BUFFER_SIZE);
-	}
-}
-
-void FilterFAFAGZ(Para_A24  * para_, bool  &  pass_,  uint8_t * ComPresseData , size_t & CompressedSize,size_t &  OUT_BUFFER_SIZE , int & start_, int & end_, vector <string> & id_, vector <string> & seq_){
-	int headCrop = para_->HeadCrop;
-	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	string  Data=""; Data.reserve(OUTPUT_BUFFER_SIZE);
-	for (int i = start_; i < end_; i++) {
-		int seqLen = seq_[i].length();
-		if ((totalCrop >= seqLen)) {
-		}
-		else {
-			seq_[i] = seq_[i].substr(headCrop, seqLen - totalCrop);
-			seqLen = seq_[i].length();
-			if (seqLen < (para_->MinLength)) {
-			}
-			else {
-				id_[i][0]='>';
-				Data=Data+id_[i]+"\n" + seq_[i] +"\n";
-			}
-		}
-	}
-
-	if (Data.empty()) {
-		pass_ = false;
-	}
-	else {
-		pass_ = true;
-		DeflateCompress GZData ;
-		size_t inputSize = Data.length();
-		GZData.compressData(Data.c_str(), inputSize, ComPresseData , CompressedSize,OUT_BUFFER_SIZE);
-	}
-}
-
-void FilterFQ(Para_A24  * para_, bool  *  pass_, int & start_, int & end_, vector <string> & seq_, vector <string> & qual_) {
-	int headCrop = para_->HeadCrop;
-	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	for (int i = start_; i < end_; i++) {
-		int seqLen = seq_[i].length();
-		int qualLen = qual_[i].length();
-		if ((totalCrop >= seqLen) || (seqLen != qualLen)) {
-			pass_[i] = false;
-		}
-		else {
-			seq_[i] = seq_[i].substr(headCrop, seqLen - totalCrop);
-			qual_[i] = qual_[i].substr(headCrop, qualLen - totalCrop);
-			seqLen = seq_[i].length();
-			if (seqLen < (para_->MinLength)) {
-				pass_[i] = false;
-			}
-			else {
-				double avgQuality = CalcAvgQuality(qual_[i]);
-				if (avgQuality < (para_->AverQ)) {
-					pass_[i] = false;
-				} else {
-					pass_[i] = true;
+	}else{
+		for (int i = Start; i < End; i++) {
+			int seqLen = SEQ[i].length();
+			int qualLen = QUAL[i].length();
+			if ((totalCrop < seqLen) && (seqLen == qualLen)) {
+				SEQ[i] = SEQ[i].substr(headCrop, seqLen - totalCrop);
+				QUAL[i] = QUAL[i].substr(headCrop, qualLen - totalCrop);
+				seqLen = SEQ[i].length();
+				if (seqLen >= (P2In->MinLength)) {
+					double avgQuality = CalcAvgQuality(QUAL[i]);
+					if (avgQuality >= (P2In->AverQ)) {
+						OUT_DATA=OUT_DATA+">"+ID[i]+"\n" + SEQ[i] + "\n";
+					}
 				}
 			}
 		}
 	}
 }
 
-void FilterFA(Para_A24* para_, bool * pass_, int & start_, int & end_, vector <string> & seq_ ) {
-	int headCrop = para_->HeadCrop;
-	int totalCrop = (para_->HeadCrop) + (para_->TailCrop);
-	int minLength = para_->MinLength;
-	for (int i = start_; i < end_; i++) {
-		int seqLen = seq_[i].length();
-		if (totalCrop >= seqLen) {
-			pass_[i] = false;
-		}
-		else {
-			seq_[i] = seq_[i].substr(headCrop, seqLen - totalCrop);
-			seqLen = seq_[i].length();
-			if (seqLen < minLength) {
-				pass_[i] = false;
-			}
-			else {
-				pass_[i] = true;
+void Filter_fasta_reads(Para_A24 * P2In,string &OUT_DATA, int Start, int End, 
+						vector<string>& ID, vector <string> & SEQ) {
+	int headCrop = P2In->HeadCrop;
+	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
+
+	for (int i = Start; i < End; i++) {
+		int seqLen = SEQ[i].length();
+		if (totalCrop < seqLen) {
+			SEQ[i] = SEQ[i].substr(headCrop, seqLen - totalCrop);
+			seqLen = SEQ[i].length();
+			if (seqLen >= (P2In->MinLength)) {
+				OUT_DATA=OUT_DATA+">"+ID[i]+"\n" + SEQ[i] + "\n";
 			}
 		}
 	}
 }
 
-void compressFasta(vector<string>& ID, vector<string>& SEQ, bool * PASS,DeflateOgzstream & OUTH, int end){
-	string  input="";
-	for (int j = 0; j < end; j++) {
-		if (PASS[j]) {
-			input=input+ ID[j] + "\n" + SEQ[j] + "\n";
-		}
-	}
-	int length= input.length();
-	if (length>1) {
-		OUTH.writeGZIO(input);
+void Filter_reads(Para_A24 * P2In, string &OUT_DATA, int & Start, int & End, 
+				vector<string> &ID, vector <string> &SEQ, vector <string> &QUAL){
+	OUT_DATA="";
+	if(QUAL[0].length()<=2){
+		Filter_fasta_reads(P2In, OUT_DATA, Start, End, ID, SEQ);
+	} else {
+		Filter_fastq_reads(P2In, OUT_DATA, Start, End, ID, SEQ, QUAL);
 	}
 }
 
-void compressFastq(vector<string>& ID, vector<string>& SEQ, vector<string>& QUAL, bool * PASS, DeflateOgzstream & OUTH, int end){
-	string input="";
-	for (int j = 0 ; j < end; j++) {
-		if (PASS[j]) {
-			input=input+ ID[j] + "\n" + SEQ[j] + "\n+\n" + QUAL[j] + "\n";
-		}
+void Filter_reads_gz(Para_A24 * P2In, int & Start, int & End,
+					vector<string> &ID, vector <string> &SEQ, vector <string> &QUAL,
+					uint8_t ** ComPresseData, size_t & CompressedSize,
+					size_t & OUT_BUFFER_SIZE, int thread_id){
+	string OUT_DATA="";
+	OUT_DATA.reserve(OUTPUT_BUFFER_SIZE);
+	if(QUAL[0].length()<=2){
+		Filter_fasta_reads(P2In, OUT_DATA, Start, End, ID, SEQ);
+
+	} else {
+		Filter_fastq_reads(P2In, OUT_DATA, Start, End, ID, SEQ, QUAL);
+		
 	}
-	int length= input.length();
-	if (length>1) {
-		OUTH.writeGZIO(input);
+	
+	if (!(OUT_DATA.empty())) {
+		DeflateCompress  GZData;
+		size_t inputSize  = OUT_DATA.length();
+		GZData.compressData(OUT_DATA.c_str(), inputSize, ComPresseData, 
+							CompressedSize,OUT_BUFFER_SIZE,thread_id);
 	}
+	
+
 }
 
-int Run_fasta(Para_A24 * P2In, int &Ingz, int &Outgz) {
+int Run_seq_filter (Para_A24 * P2In) {
 
 	std::ios::sync_with_stdio(false);
 	std::cin.tie(0);
 
 	vector <string>  ID;
 	vector <string>  SEQ;
-
+	vector <string>  QUAL;
+	
 	ID.resize(BATCH_SIZE+2);
 	SEQ.resize(BATCH_SIZE+2);
-
-	int A=0;
+	QUAL.resize(BATCH_SIZE+2);
 
 	vector<thread> threads;
 
 	int * Start =new int [n_thread];
 	int * End =new int [n_thread];
-	bool *PASS =new bool [BATCH_SIZE];
 
-	gzFile FA;
-	kseq_t *seqFA;
-	FA = gzopen((P2In->InFile).c_str(), "r");
-	seqFA = kseq_init(FA);
+	int len;
+	gzFile fp;
+	kseq_t *seq;
 
-	string id, seq, plus, qual;
-	long long  seq_number=0;
+	fp = gzopen((P2In->InFile).c_str(), "r");
+	seq = kseq_init(fp);
 
-	if (Outgz == 1) {
-		P2In->OutFile=add_Asuffix(P2In->OutFile);
-		DeflateOgzstream OUTH(P2In->OutFile);
-		int AA;
+	string outname=P2In->OutFile;
+
+	int seq_num=0;
+
+	if (P2In->OUTGZ){
+		DeflateOgzstream OUTHGZ(outname.c_str());
 		uint8_t ** ComPresseData = new uint8_t*[n_thread];
 		size_t * CompressedSize =new size_t [n_thread];
 		size_t * OUT_BUFFER_SIZE =new size_t [n_thread];
-
+		int * ArryThread=new int [n_thread];
 		for (int i = 0; i < n_thread; i++) {
 			ComPresseData[i] = new uint8_t[OUTPUT_BUFFER_SIZE];
 			CompressedSize[i]=OUTPUT_BUFFER_SIZE;
 			OUT_BUFFER_SIZE[i]=OUTPUT_BUFFER_SIZE;
+			ArryThread[i]=i;
 		}
 
-		while((AA = kseq_read(seqFA)) >= 0 ) {
-			id=(seqFA->name.s);
-			seq=(seqFA->seq.s);
-
-			ID[seq_number]=id;
-			SEQ[seq_number]=seq;
-			seq_number++;
-
-			if (seq_number==BATCH_SIZE) {
+		while((len = kseq_read(seq)) >= 0 ) {
+			ID[seq_num]=seq->name.s;
+			SEQ[seq_num]=seq->seq.s;
+			QUAL[seq_num]=seq->qual.s;
+			
+			seq_num++;
+			if (seq_num==BATCH_SIZE) {
 				for (int i = 0; i < n_thread; i++) {
 					Start[i]=i*BinWind;
 					End[i]=Start[i]+BinWind;
-					if (End[i]>seq_number) {
-						End[i]=seq_number;
+					if (End[i]>seq_num){
+						End[i]=seq_num;
 					}
-
 					if (Start[i]>=End[i]) {
 						continue;
 					}
-
-					threads.push_back(thread(FilterFAFAGZ, P2In, ref(PASS[i]),ComPresseData[i], ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]), ref(Start[i]),ref(End[i]), ref(ID), ref(SEQ)));
-
+					threads.push_back(thread(Filter_reads_gz,P2In,ref(Start[i]),ref(End[i]), 
+							ref(ID), ref(SEQ),ref(QUAL),ComPresseData, ref(CompressedSize[i]),
+							ref(OUT_BUFFER_SIZE[i]), ref(ArryThread[i])));
 				}
 
-				for (auto& thread : threads) {
+				for (auto& thread : threads){
 					thread.join();
 				}
 				threads.clear();
+
 				for (int i = 0; i < n_thread; i++) {
-					if (PASS[i]) {
-						OUTH.writeGZIO ( ComPresseData[i] , CompressedSize[i] );
+					if (CompressedSize[i]>0) {
+						OUTHGZ.writeGZIO(ComPresseData[i], CompressedSize[i] );
 					}
 				}
 
-				seq_number=0;
+				seq_num=0;
 			}
 		}
 
-		if (seq_number!=0) {
-			for (int i = 0; i < n_thread; i++){
+		if (seq_num!=0) {
+			for (int i = 0; i < n_thread; i++) {
 				Start[i]=i*BinWind;
 				End[i]=Start[i]+BinWind;
-				if (End[i]>seq_number){
-					End[i]=seq_number;
+				if (End[i]>seq_num){
+					End[i]=seq_num;
 				}
 				if (Start[i]>=End[i]) {
 					continue;
 				}
-				threads.push_back(thread(FilterFAFAGZ, P2In, ref(PASS[i]),ComPresseData[i], ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]), ref(Start[i]),ref(End[i]), ref(ID), ref(SEQ)));
+				threads.push_back(thread(Filter_reads_gz,P2In,ref(Start[i]),ref(End[i]), 
+						ref(ID), ref(SEQ),ref(QUAL),ComPresseData, ref(CompressedSize[i]),
+						ref(OUT_BUFFER_SIZE[i]), ref(ArryThread[i])));
 			}
 
 			for (auto& thread : threads){
@@ -598,302 +460,12 @@ int Run_fasta(Para_A24 * P2In, int &Ingz, int &Outgz) {
 			threads.clear();
 
 			for (int i = 0; i < n_thread; i++) {
-				if (PASS[i]) {
-					OUTH.writeGZIO (ComPresseData[i], CompressedSize[i]);
-				}
-			}
-			seq_number=0;
-		}
-
-
-		for (int i = 0; i < n_thread; i++) {
-			delete[]  ComPresseData[i] ;
-		}
-
-		delete [] ComPresseData ;
-		delete [] CompressedSize ;
-	} 
-	else {
-		ofstream OUTH;
-		OUTH.open((P2In->OutFile));
-
-		int AA;
-		while((AA = kseq_read(seqFA)) >= 0) {
-			id=(seqFA->name.s);
-			seq=(seqFA->seq.s);
-
-			ID[seq_number]=id;
-			SEQ[seq_number]=seq;
-
-			seq_number++;
-
-			if (seq_number==BATCH_SIZE) {
-				for (int i = 0; i < n_thread; i++)
-				{
-					Start[i]=i*BinWind;
-					End[i]=Start[i]+BinWind;
-					if (End[i]>seq_number) {
-						End[i]=seq_number;
-					}
-
-					if (Start[i]>=End[i]) {
-						continue;
-					}
-
-					threads.push_back(thread(FilterFA,P2In,PASS,ref(Start[i]),
-											 ref(End[i]),ref(SEQ)));
-				}
-
-				for (auto& thread : threads) {
-					thread.join();
-				}
-				threads.clear();
-
-				for (int j = 0; j < seq_number; j++) {
-					if (PASS[j]) {
-						ID[j][0]='>';
-						OUTH << ID[j] << "\n" << SEQ[j] << "\n";
-					}
-				}
-
-				seq_number=0;
-			}
-		}
-
-		if (seq_number!=0) {
-			for (int i = 0; i < n_thread; i++){
-				Start[i]=i*BinWind;
-				End[i]=Start[i]+BinWind;
-				if (End[i]>seq_number){
-					End[i]=seq_number;
-				}
-				if (Start[i]>=End[i]) {
-					continue;
-				}
-				threads.push_back(thread(FilterFA,P2In,PASS,ref(Start[i]),
-										 ref(End[i]),ref(SEQ)));
-			}
-
-			for (auto& thread : threads){
-				thread.join();
-			}
-			threads.clear();
-
-			for (int j = 0; j < seq_number; j++) {
-				if (PASS[j]) {
-					ID[j][0]='>';
-					OUTH << ID[j] << "\n" << SEQ[j] << "\n";
+				if (CompressedSize[i]>0) {
+					OUTHGZ.writeGZIO(ComPresseData[i], CompressedSize[i] );
 				}
 			}
 
-			seq_number=0;
-			OUTH.close();
-
-		}
-	}
-
-	kseq_destroy(seqFA);
-	gzclose(FA);
-
-	delete [] Start;
-	delete [] End;
-	delete [] PASS;
-
-	return 0;
-}
-
-int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
-
-	std::ios::sync_with_stdio(false);
-	std::cin.tie(0);
-
-	vector <string>  ID;
-	vector <string>  SEQ;
-	vector <string>  QUAL;
-
-	ID.resize(BATCH_SIZE+2);
-	SEQ.resize(BATCH_SIZE+2);
-	QUAL.resize(BATCH_SIZE+2);
-
-	int A=0;
-
-	vector<thread> threads;
-
-
-	int * Start =new int [n_thread];
-	int * End =new int [n_thread];
-	bool *PASS =new bool [BATCH_SIZE];
-
-	igzstream INH ((P2In->InFile).c_str(),ifstream::in);
-	INH.rdbuf()->pubsetbuf(nullptr, 1024*8);
-
-	if (INH.fail()) {
-		cerr << "Error: Can't open input file: " << (P2In->InFile) << endl;
-		return  -1;
-	}
-
-	string id, seq, plus, qual;
-	long long  seq_number=0;
-
-	//open out file
-	if (Outgz == 1) {
-		P2In->OutFile=add_Asuffix(P2In->OutFile);
-		DeflateOgzstream OUTH(P2In->OutFile);
-
-		uint8_t ** ComPresseData = new uint8_t*[n_thread];
-		size_t * CompressedSize =new size_t [n_thread];
-		size_t * OUT_BUFFER_SIZE =new size_t [n_thread];
-		for (int i = 0; i < n_thread; i++) {
-			ComPresseData[i] = new uint8_t[OUTPUT_BUFFER_SIZE];
-			CompressedSize[i]=OUTPUT_BUFFER_SIZE;
-			OUT_BUFFER_SIZE[i]=OUTPUT_BUFFER_SIZE;
-		}
-
-		if (Outfq==1) {
-			while(!INH.eof()) {
-				getline(INH, id);
-				getline(INH, seq);
-				getline(INH, plus);
-				getline(INH, qual);
-
-				if (id.empty()) { 
-					continue;
-				}
-
-				ID[seq_number]=id;
-				SEQ[seq_number]=seq;
-				QUAL[seq_number]=qual;
-
-				seq_number++;
-
-				if (seq_number==BATCH_SIZE) {
-					for (int i = 0; i < n_thread; i++) {
-						Start[i]=i*BinWind;
-						End[i]=Start[i]+BinWind;
-						if (End[i]>seq_number) {
-							End[i]=seq_number;
-						}
-
-						if (Start[i]>=End[i]) {
-							continue;
-						}
-						threads.push_back(std::thread(FilterFQFQGZ,P2In,ref(PASS[i]),ComPresseData[i],ref(CompressedSize[i]), ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
-					}
-					for (auto& thread : threads) {
-						thread.join();
-					}
-					threads.clear();
-
-					for (int i = 0; i < n_thread; i++) {
-						if (PASS[i]) {
-							OUTH.writeGZIO ( ComPresseData[i] , CompressedSize[i] );
-						}
-					}
-					seq_number=0;
-				}
-			}
-
-			if (seq_number!=0) {
-				for (int i = 0; i < n_thread; i++) {
-					Start[i]=i*BinWind;
-					End[i]=Start[i]+BinWind;
-					if (End[i]>seq_number){
-						End[i]=seq_number;
-					}
-					if (Start[i]>=End[i]) {
-						continue;
-					}
-					threads.push_back(std::thread(FilterFQFQGZ,P2In,ref(PASS[i]),ComPresseData[i],ref(CompressedSize[i]), ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
-				}
-
-				for (auto& thread : threads){
-					thread.join();
-				}
-				threads.clear();
-
-				//outfile
-
-				for (int i = 0; i < n_thread; i++) {
-					if (PASS[i]) {
-						OUTH.writeGZIO ( ComPresseData[i] , CompressedSize[i] );
-					}
-				}
-
-				seq_number=0;
-			}
-		}
-		else {
-			while(!INH.eof()) {
-				getline(INH, id);
-				getline(INH, seq);
-				getline(INH, plus);
-				getline(INH, qual);
-				if (id.empty()) { 
-					continue;
-				}
-
-				ID[seq_number]=id;
-				SEQ[seq_number]=seq;
-				QUAL[seq_number]=qual;
-
-				seq_number++;
-
-				if (seq_number==BATCH_SIZE) {
-					for (int i = 0; i < n_thread; i++) {
-						Start[i]=i*BinWind;
-						End[i]=Start[i]+BinWind;
-						if (End[i]>seq_number) {
-							End[i]=seq_number;
-						}
-
-						if (Start[i]>=End[i]) {
-							continue;
-						}
-						threads.push_back(thread(FilterFQFAGZ,P2In,ref(PASS[i]),
-						ComPresseData[i],ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),
-						ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
-					}
-					for (auto& thread : threads) {
-						thread.join();
-					}
-					threads.clear();
-					for (int i = 0; i < n_thread; i++) {
-						if (PASS[i]) {
-							OUTH.writeGZIO ( ComPresseData[i] , CompressedSize[i] );
-						}
-					}
-					seq_number=0;
-				}
-			}
-
-			if (seq_number!=0) {
-				for (int i = 0; i < n_thread; i++) {
-					Start[i]=i*BinWind;
-					End[i]=Start[i]+BinWind;
-					if (End[i]>seq_number){
-						End[i]=seq_number;
-					}
-					if (Start[i]>=End[i]) {
-						continue;
-					}
-					threads.push_back(thread(FilterFQFAGZ,P2In,ref(PASS[i]),
-					ComPresseData[i],ref(CompressedSize[i]),ref(OUT_BUFFER_SIZE[i]),ref(Start[i]),
-					ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
-				}
-
-				for (auto& thread : threads){
-					thread.join();
-				}
-				threads.clear();
-
-				for (int i = 0; i < n_thread; i++) {
-					if (PASS[i]) {
-						OUTH.writeGZIO ( ComPresseData[i] , CompressedSize[i] );
-					}
-				}
-
-				seq_number=0;
-			}
+			seq_num=0;
 		}
 
 		for (int i = 0; i < n_thread; i++) {
@@ -903,77 +475,60 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 		delete [] CompressedSize ;
 		delete [] OUT_BUFFER_SIZE;
 		delete [] ComPresseData ;
-	} 
-	else {	
+		delete [] ArryThread ;
+
+	} else {
 		ofstream OUTH;
-		OUTH.open((P2In->OutFile));
-		while(!INH.eof()) {	
-			getline(INH, id);
-			getline(INH, seq);
-			getline(INH, plus);
-			getline(INH, qual);
-			if (id.empty()) { 
-				continue;
-			}
+		OUTH.open(outname.c_str());
+		vector <string> OUT_DATA;
+		OUT_DATA.resize(n_thread);
 
-			ID[seq_number]=id;
-			SEQ[seq_number]=seq;
-			QUAL[seq_number]=qual;
-
-			seq_number++;
-
-			if (seq_number==BATCH_SIZE) {
+		while((len = kseq_read(seq)) >= 0 ) {
+			ID[seq_num]=seq->name.s;
+			SEQ[seq_num]=seq->seq.s;
+			QUAL[seq_num]=seq->qual.s;
+			
+			seq_num++;
+			if (seq_num==BATCH_SIZE) {
 				for (int i = 0; i < n_thread; i++) {
 					Start[i]=i*BinWind;
 					End[i]=Start[i]+BinWind;
-					if (End[i]>seq_number) {
-						End[i]=seq_number;
+					if (End[i]>seq_num){
+						End[i]=seq_num;
 					}
-
 					if (Start[i]>=End[i]) {
 						continue;
 					}
-					threads.push_back(std::thread(FilterFQ,P2In,PASS,ref(Start[i]),
-					ref(End[i]),ref(SEQ),ref(QUAL)));
+					threads.push_back(thread(Filter_reads,P2In, ref(OUT_DATA[i]), 
+					ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
 				}
 
-				for (auto& thread : threads) {
+				for (auto& thread : threads){
 					thread.join();
 				}
 				threads.clear();
 
-				if (Outfq==1) {
-					for (int j = 0; j < seq_number; j++) {
-						if (PASS[j]) {
-							OUTH << ID[j] << "\n" << SEQ[j] << "\n+\n" << QUAL[j] << "\n";
-						}
+				for (int i = 0; i < n_thread; i++) {
+					if (!(OUT_DATA[i].empty())) {
+						OUTH << OUT_DATA[i];
 					}
 				}
-				else if(Outfq==0) {
-					for (int j = 0; j < seq_number; j++) {
-						if (PASS[j]) {
-							ID[j][0]='>';
-							OUTH << ID[j] << "\n" << SEQ[j] << "\n";
-						}
-					}
-				}
-
-				seq_number=0;
+				seq_num=0;
 			}
 		}
 
-		if (seq_number!=0) {
-			for (int i = 0; i < n_thread; i++){
+		if (seq_num!=0) {
+			for (int i = 0; i < n_thread; i++) {
 				Start[i]=i*BinWind;
 				End[i]=Start[i]+BinWind;
-				if (End[i]>seq_number){
-					End[i]=seq_number;
+				if (End[i]>seq_num){
+					End[i]=seq_num;
 				}
 				if (Start[i]>=End[i]) {
 					continue;
 				}
-				threads.push_back(thread(FilterFQ,P2In,PASS,
-				ref(Start[i]),ref(End[i]),ref(SEQ),ref(QUAL)));
+				threads.push_back(thread(Filter_reads,P2In, ref(OUT_DATA[i]), 
+				ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
 			}
 
 			for (auto& thread : threads){
@@ -981,95 +536,62 @@ int Run_fastq(Para_A24 * P2In, int &Ingz, int &Outgz, int &Outfq) {
 			}
 			threads.clear();
 
-			if (Outfq==1) {
-				for (int j = 0; j < seq_number; j++) {
-					if (PASS[j]) {
-						OUTH << ID[j] << "\n" << SEQ[j] << "\n+\n" << QUAL[j] << "\n";
-					}
+			for (int i = 0; i < n_thread; i++) {
+				if (!(OUT_DATA[i].empty())) {
+					OUTH << OUT_DATA[i];
 				}
 			}
-			else if(Outfq==0) {
-				for (int j = 0; j < seq_number; j++) {
-					if (PASS[j]) {
-						ID[j][0]='>';
-						OUTH << ID[j] << "\n" << SEQ[j] << "\n";
-					}
-				}
-			}
-
-			seq_number=0;
-			OUTH.close();
-
+			seq_num=0;
 		}
+		OUTH.close();
 	}
 
-	INH.close();
+	kseq_destroy(seq);
+	gzclose(fp);
+
 	delete [] Start;
 	delete [] End;
-	delete [] PASS;
 
 	return 0;
 }
 
-int Run_TGSFilter(Para_A24 * P2In)
-{	
+int Run_TGSFilter(Para_A24 * P2In) {
 	string InPath=(P2In->InFile);
-	pair<int, int> Intype = GetFileType(InPath);
-	int Infq = Intype.first;
-	int Ingz = Intype.second;
+	string OutPath=(P2In->OutFile);	
+	P2In->Infq = GetFileType(InPath);
+	P2In->Outfq = GetFileType(OutPath);
 
-	string OutPath=(P2In->OutFile);
-	pair<int, int> Outtype = GetFileType(OutPath);
-	int Outfq = Outtype.first;
-	int Outgz = Outtype.second;
-
-	if (Infq==2 || Outfq==2) {
+	if ((P2In->Infq)==2 || (P2In->Outfq)==2) {
 		cerr<<"Error: The file name suffix should be '.[fastq|fq|fasta|fa][.gz]'"<<endl;
-		if (Infq==2) {
+		if ((P2In->Infq)==2) {
 			cerr<<"Error: Please check your input file name: "<<(P2In->InFile)<<endl;
 		}
-		else if(Outfq==2) {
+		else if((P2In->Outfq)==2) {
 			cerr<<"Error: Please check your output file name: "<<(P2In->OutFile)<<endl;
 		}
 		return 1;
+	}else if ((P2In->Infq)==0 && (P2In->Outfq)==1){
+		cerr<<"Fasta format input file can't output fastq format file"<<endl;
+		return 1;
 	}
 
-	int readLen;
-	if (Infq==1) {
-		pair<int, int> fqInfo=GetQtype(P2In, Ingz);
-		int Qtype=fqInfo.first; // Phred 33 or 64
-		P2In->AverQ=(P2In->minQ)+Qtype;
-		readLen=fqInfo.second;
-	}
-	else if (Infq==0) {
-		readLen=GetReadLen(P2In, Ingz);
+	string ext = GetFileExtension(OutPath);
+	if (ext=="gz"){
+		P2In->OUTGZ=true;
 	}
 
-	if (VECMAX == 1024) {
-		if (readLen>=1000) {
-			VECMAX=8;
-		} 
-		else
-		{
-			VECMAX=1024;
-		}
+	Get_qType(P2In);
+	int read_length=(P2In->ReadLength);
+	cout<<"INFO: middle read length is "<<read_length<<" bp"<<endl;
+	
+	BinWind=int(VECMAX/read_length);
+	if (BinWind<1){
+		BinWind=1;
 	}
-
-	BinWind = int(VECMAX/n_thread)+1;
-	if (BinWind<4) {BinWind=4;}
 	BATCH_SIZE = BinWind*n_thread;
 
-	if (Infq==1) {
-		Run_fastq(P2In, Ingz, Outgz, Outfq);
-		cerr<<"done Run FQ"<<endl;
-	}
-	else if (Infq==0) {
-		if (Outfq==1) {
-			cerr<<"Fasta format input file can't output fastq format file"<<endl;
-			return 1;
-		}
-		Run_fasta(P2In, Infq, Outgz);
-	}
+	Run_seq_filter(P2In);
+
 	return 0;
 }
 
