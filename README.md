@@ -22,13 +22,13 @@ cd bin
 Usage: tgsfilter -1 TGS_reads.fq.gz -o OutFile.fq.gz
  Options:
    -i	<str>   input of fasta/q file
-   -o	<str>   output file
+   -o	<str>   output of fasta/q file
    -q	<int>   min Phred average quality score [10]
    -l	<int>   min length of read [100]
    -s	<int>   Trim N nucleotides from the start of a read [0]
    -e	<int>   Trim N nucleotides from the end of a read [0]
-   -t		number of threads [1]
-   -h		show help [v1.04]
+   -t         number of threads [1]
+   -h         show help [v1.05]
 ```
 ## 3. Example
 
