@@ -8,7 +8,6 @@
 
 using namespace std;
 
-
 class DeflateOgzstream {
 	public:
 		DeflateOgzstream(const std::string& filename) : m_outputFile(filename, std::ios::out | std::ios::binary) {
@@ -75,8 +74,6 @@ class DeflateOgzstream {
 		uint8_t m_outputBuffer[OUTPUT_BUFFER_SIZE];
 };
 
-
-
 class DeflateCompress{
 	public:
 		DeflateCompress( ) {
@@ -87,23 +84,15 @@ class DeflateCompress{
 			libdeflate_free_compressor(m_compressor);
 		}
 
-		bool compressData(const void* input, size_t inputSize, uint8_t * m_outputBuffer, size_t & compressedSize, size_t & OUT_BUFFER_SIZE) 
+		bool compressData(const void* input, size_t inputSize, uint8_t  ** m_outputBuffer, size_t & compressedSize, size_t & OUT_BUFFER_SIZE,int &  Thread) 
 		{
-			if (!m_compressor || !input || inputSize == 0) 
-			{
-				return false;
+			if (OUT_BUFFER_SIZE<0.8*inputSize) { // compression >=80%
+				OUT_BUFFER_SIZE=inputSize;
+				delete [] m_outputBuffer[Thread];
+				m_outputBuffer[Thread]=new uint8_t[OUT_BUFFER_SIZE];
 			}
-			//cerr<<inputSize<<"\t"<<OUT_BUFFER_SIZE<<endl;
-		/*
-			if (OUT_BUFFER_SIZE<16*inputSize)
-			{
-				cerr<<inputSize<<"\t"<<OUT_BUFFER_SIZE<<endl;
-				OUT_BUFFER_SIZE=16*inputSize;
-		//		delete [] m_outputBuffer;
-		//		m_outputBuffer=new uint8_t[OUT_BUFFER_SIZE];
-			}
-			//*/
-			compressedSize = libdeflate_gzip_compress(m_compressor, input, inputSize, m_outputBuffer, OUT_BUFFER_SIZE);
+
+			compressedSize = libdeflate_gzip_compress(m_compressor, input, inputSize, m_outputBuffer[Thread], OUT_BUFFER_SIZE);
 			if (compressedSize == 0) {
 				return false;
 			}
@@ -112,7 +101,7 @@ class DeflateCompress{
 			}
 		}
 
-		private:
+	private:
 		libdeflate_compressor* m_compressor;
 };
 
