@@ -440,6 +440,7 @@ int Run_seq_filter (Para_A24 * P2In) {
 		}
 
 		if (seq_num!=0) {
+			int flag=0;
 			for (int i = 0; i < n_thread; i++) {
 				Start[i]=i*BinWind;
 				End[i]=Start[i]+BinWind;
@@ -452,6 +453,7 @@ int Run_seq_filter (Para_A24 * P2In) {
 				threads.push_back(thread(Filter_reads_gz,P2In,ref(Start[i]),ref(End[i]), 
 						ref(ID), ref(SEQ),ref(QUAL),ComPresseData, ref(CompressedSize[i]),
 						ref(OUT_BUFFER_SIZE[i]), ref(ArryThread[i])));
+				flag++;
 			}
 
 			for (auto& thread : threads){
@@ -459,7 +461,7 @@ int Run_seq_filter (Para_A24 * P2In) {
 			}
 			threads.clear();
 
-			for (int i = 0; i < n_thread; i++) {
+			for (int i = 0; i < flag; i++) {
 				if (CompressedSize[i]>0) {
 					OUTHGZ.writeGZIO(ComPresseData[i], CompressedSize[i] );
 				}
@@ -518,6 +520,7 @@ int Run_seq_filter (Para_A24 * P2In) {
 		}
 
 		if (seq_num!=0) {
+			int flag=0;
 			for (int i = 0; i < n_thread; i++) {
 				Start[i]=i*BinWind;
 				End[i]=Start[i]+BinWind;
@@ -529,6 +532,7 @@ int Run_seq_filter (Para_A24 * P2In) {
 				}
 				threads.push_back(thread(Filter_reads,P2In, ref(OUT_DATA[i]), 
 				ref(Start[i]),ref(End[i]),ref(ID),ref(SEQ),ref(QUAL)));
+				flag++;
 			}
 
 			for (auto& thread : threads){
@@ -536,7 +540,7 @@ int Run_seq_filter (Para_A24 * P2In) {
 			}
 			threads.clear();
 
-			for (int i = 0; i < n_thread; i++) {
+			for (int i = 0; i < flag; i++) {
 				if (!(OUT_DATA[i].empty())) {
 					OUTH << OUT_DATA[i];
 				}
