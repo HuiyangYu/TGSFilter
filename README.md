@@ -33,13 +33,9 @@ Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
 ```
 ## 3. Example
 
-### 3.1 Filter ont ultra-long reads
+### 3.1 Filter ONT/HIFI/CLR reads
 ```
-tgsfilter -i ont.fq.gz -q 7 -l 20000 -o ont.filtered.fq.gz
-```
-### 3.2 Filter Pacbio HIFI reads
-```
-tgsfilter -i HIFI.fq.gz -q 20 -l 10000 -o HIFI.filtered.fq.gz
+tgsfilter -i tgs.raw.fq.gz -o tgs.clean.fq.gz
 ```
 
 ## 4. License
