@@ -19,16 +19,17 @@ cd bin
 ```
 ## 2. Usage
 ```
-Usage: tgsfilter -1 TGS_reads.fq.gz -o OutFile.fq.gz
+Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
  Options:
    -i	<str>   input of fasta/q file
    -o	<str>   output of fasta/q file
-   -q	<int>   min Phred average quality score [10]
-   -l	<int>   min length of read [100]
-   -s	<int>   Trim N nucleotides from the start of a read [0]
-   -e	<int>   Trim N nucleotides from the end of a read [0]
-   -t           number of threads [1]
-   -h           show help [v1.05]
+   -l	<int>   min length of read to out [1000]
+   -q	<int>   min mean base quality [auto]
+   -5	<int>   drop bases from the front (5') of a read [0]
+   -3	<int>   drop bases from the tail (3') of a read [0]
+   -w	<int>   windows szie to cut off low quality region [50]
+   -t           number of threads [3]
+   -h           show help [v1.06]
 ```
 ## 3. Example
 
