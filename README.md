@@ -84,6 +84,12 @@ INFO: found adapter
 >PB-1
 ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
 ```
+## 4. Speed
+The computation time comparison of seven tools for calculating coverage using different numbers of threads with 150 Gb of sequencing reads.
+## 5. Memory
+The memory requirements comparison of seven tools for calculating coverage using different numbers of threads with 150 Gb of sequencing reads.
+## 6.FAQ
+### 6.1 
 
 
 ## 4. License
