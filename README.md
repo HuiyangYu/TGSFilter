@@ -4,9 +4,9 @@
 ##  1. Install
 ### (1) Pre-built binaries for x86_64 Linux
 ```
-wget -c https://github.com/HuiyangYu/TGSFilter/releases/download/v1.03/TGSFilter-1.013-Linux-x86_64.tar.gz
-tar zvxf TGSFilter-1.03-Linux-x86_64.tar.gz
-cd TGSFilter-1.03-Linux-x86_64
+wget -c https://github.com/HuiyangYu/TGSFilter/releases/download/v1.07/TGSFilter-1.07-Linux-x86_64.tar.gz
+tar zvxf TGSFilter-1.07-Linux-x86_64.tar.gz
+cd TGSFilter-1.07-Linux-x86_64
 ./tgsfilter -h
 ```
 ### (2) Building from source （Linux or Mac）
@@ -20,23 +20,53 @@ cd bin
 ## 2. Usage
 ```
 Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
- Options:
+ Input/Output options:
    -i	<str>   input of fasta/q file
    -o	<str>   output of fasta/q file
+ Basic filter options:
    -l	<int>   min length of read to out [1000]
+   -m	<int>   max length of read to out
    -q	<int>   min mean base quality [auto]
-   -5	<int>   drop bases from the front (5') of a read [0]
-   -3	<int>   drop bases from the tail (3') of a read [0]
-   -w	<int>   windows szie to cut off low quality region [50]
+   -w	<int>   windows size to cut off low quality region [50]
+   -n	<int>   read number for base content check [200000]
+   -b	<int>   read end length for base content check [100]
+   -5	<int>   drop bases from the front (5') of the read [auto]
+   -3	<int>   drop bases from the tail (3') of the read [auto]
+ Adapter filter options:
+   -a	<str>   adapter sequence file 
+   -A           disable reads filter, only for adapter identify
+   -N	<int>   read number for adapter identify [200000]
+   -e	<int>   read end length for adapter identify [100]
+   -k	<int>   kmer size for adapter assembly [15]
+   -y	<int>   min assembly adapter length [20]
+   -c	<int>   min match length between read and adapter [5]
+   -s  <float>  min similarity between read and adapter [0.8]
+ Other options:
    -t           number of threads [3]
-   -h           show help [v1.06]
+   -h           show help [v1.07]
 ```
 ## 3. Example
 
-### 3.1 Filter ONT/HIFI/CLR reads
+### 3.1 Filter HIFI reads
 ```
-tgsfilter -i tgs.raw.fq.gz -o tgs.clean.fq.gz
+tgsfilter -i hifi.raw.fq.gz -o hifi.clean.fq.gz
 ```
+Two output files will be generated, namely 'hifi.raw..adapter.fa' and 'hifi.clean.fq.gz'. 
+The log information printed on the screen will contain the following information:
+```
+INFO: front drop length: 12
+INFO: tail drop length: 11
+INFO: min mean base quality was set to: 20
+INFO: searching 5' adapter...
+INFO: found adapter
+>PB-1
+ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+INFO: searching 3' adapter...
+INFO: found adapter
+>PB-1
+ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+```
+
 
 ## 4. License
 -------
