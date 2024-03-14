@@ -30,8 +30,8 @@ Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
    -w	<int>   windows size to cut off low quality region [50]
    -n	<int>   read number for base content check [200000]
    -b	<int>   read end length for base content check [100]
-   -5	<int>   drop bases from the front (5') of the read [auto]
-   -3	<int>   drop bases from the tail (3') of the read [auto]
+   -5	<int>   trim bases from the front (5') of the read [auto]
+   -3	<int>   trim bases from the tail (3') of the read [auto]
  Adapter filter options:
    -a	<str>   adapter sequence file 
    -A           disable reads filter, only for adapter identify
