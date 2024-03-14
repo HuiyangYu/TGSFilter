@@ -65,6 +65,13 @@ INFO: searching 3' adapter...
 INFO: found adapter
 >PB-1
 ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+10841385 reads with 199243618211 bases were input
+90 reads with 59119 bases were dropped before filter
+10841295 reads were trimmed 249349785 bases in end
+2272886 reads were trimmed 15889310 bases with adapter
+332115 reads were trimmed 46453860 bases with low quality regions
+2285142 reads with 239883295 bases were dropped before output
+11170589 reads with 198691982842 bases were output
 ```
 ### 3.2 Filter ONT reads
 ```
