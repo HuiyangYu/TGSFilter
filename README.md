@@ -51,7 +51,7 @@ Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
 ```
 tgsfilter -i hifi.raw.fq.gz -o hifi.clean.fq.gz
 ```
-Two output files will be generated, namely 'hifi.raw..adapter.fa' and 'hifi.clean.fq.gz'. <br>
+Two output files will be generated, namely 'hifi.raw.adapter.fa' and 'hifi.clean.fq.gz'. <br>
 The log information printed on the screen will contain the following content:
 ```
 INFO: front drop length: 12
