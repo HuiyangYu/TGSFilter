@@ -49,7 +49,7 @@ Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
 
 ### 3.1 Filter HIFI reads
 ```
-tgsfilter -i hifi.raw.fq.gz -o hifi.clean.fq.gz
+tgsfilter -i hifi.raw.fq.gz -o hifi.clean.fq.gz -t 10
 ```
 Two output files will be generated, namely 'hifi.raw.adapter.fa' and 'hifi.clean.fq.gz'. <br>
 The log information printed on the screen will contain the following content:
