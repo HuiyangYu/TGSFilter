@@ -66,6 +66,24 @@ INFO: found adapter
 >PB-1
 ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
 ```
+### 3.2 Filter ONT reads
+```
+tgsfilter -i ont.raw.fq.gz -o ont.clean.fq.gz -t 10
+```
+The log information printed on the screen will contain the following content:
+```
+INFO: front drop length: 12
+INFO: tail drop length: 11
+INFO: min mean base quality was set to: 20
+INFO: searching 5' adapter...
+INFO: found adapter
+>PB-1
+ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+INFO: searching 3' adapter...
+INFO: found adapter
+>PB-1
+ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+```
 
 
 ## 4. License
