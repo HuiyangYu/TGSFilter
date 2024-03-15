@@ -79,17 +79,24 @@ tgsfilter -i ont.raw.fq.gz -o ont.clean.fq.gz -t 10
 ```
 The log information printed on the screen will contain the following content:
 ```
-INFO: front drop length: 12
-INFO: tail drop length: 11
-INFO: min mean base quality was set to: 20
+INFO: front drop length: 98
+INFO: tail drop length: 12
+INFO: min mean base quality was set to: 7
 INFO: searching 5' adapter...
 INFO: found adapter
->PB-1
-ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+>ONT-3
+GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA
 INFO: searching 3' adapter...
 INFO: found adapter
->PB-1
-ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+>ONT-3
+GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA
+5301056 reads with 166540954904 bases were input
+226266 reads with 199769142 bases were dropped before filter
+5074790 reads were trimmed 558226900 bases in end
+2020991 reads were trimmed 37190954 bases with adapter
+3755155 reads were trimmed 12636527461 bases with low quality regions
+73269822 reads with 10471421188 bases were dropped before output
+13058895 reads with 142637819259 bases were output
 ```
 ## 4. Speed
 The computation time comparison of seven tools for calculating coverage using different numbers of threads with 150 Gb of sequencing reads.
