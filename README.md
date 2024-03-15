@@ -98,13 +98,6 @@ GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA
 73269822 reads with 10471421188 bases were dropped before output
 13058895 reads with 142637819259 bases were output
 ```
-## 4. Speed
-The computation time comparison of seven tools for calculating coverage using different numbers of threads with 150 Gb of sequencing reads.
-## 5. Memory
-The memory requirements comparison of seven tools for calculating coverage using different numbers of threads with 150 Gb of sequencing reads.
-## 6.FAQ
-### 6.1 
-
 
 ## 4. License
 -------
