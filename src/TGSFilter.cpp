@@ -17,7 +17,9 @@
 #include "kseq.h"
 #include "kc-c4.c"
 #include "minimap.h"
-#include "libdeflate.cpp"
+#include "libdeflate.h"
+
+#define OUTPUT_BUFFER_SIZE  1048576
 
 using namespace std;
 
@@ -306,6 +308,32 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 	}
 }
 
+class DeflateCompress
+{
+	public:
+		DeflateCompress( ) {
+			m_compressor = libdeflate_alloc_compressor(6);
+		}
+
+		~DeflateCompress(){
+			libdeflate_free_compressor(m_compressor);
+		}
+
+		bool compressData(const void* input, size_t inputSize, uint8_t *ComData, size_t &ComSize) 
+		{	
+			size_t maxComSize = libdeflate_gzip_compress_bound(m_compressor, inputSize);
+			if (maxComSize>OUTPUT_BUFFER_SIZE){
+				delete [] ComData;
+				ComData=new uint8_t[maxComSize];
+			}
+			ComSize = libdeflate_gzip_compress(m_compressor, input, inputSize, ComData, maxComSize);
+			
+		}
+
+	private:
+		libdeflate_compressor* m_compressor;
+};
+
 string GetFileExtension(const string& FilePath) {
 	size_t dotPos = FilePath.rfind('.');
 	if (dotPos == string::npos) {
@@ -409,25 +437,19 @@ string adapterSearch(Para_A24 *P2In, string &libname, string &readsname, int &me
 				int ts=r->rs;
 				int te=r->re;
 				int mlen=r->mlen;
-				int oh=tl * (1-(P2In->Similarity));
-				string name=mi->seq[r->rid].name;
-				string strand = r->rev ? "-" : "+";
-				float similarity;
-				if (qs<=oh){
-					similarity=static_cast<float>(mlen) / qe;
-				}else if((ql-qe)<=oh){
-					similarity=static_cast<float>(mlen) / (ql-qs);
-				}else{
-					int blen=r->blen;
-					if (blen<tl){
-						blen=tl;
-					}
-					similarity=static_cast<float>(mlen) / blen;
+
+				int blen=r->blen;
+				if (blen<tl){
+					blen=tl;
 				}
 
-				if (similarity>=(P2In->Similarity)){
-					maps[std::make_pair(name, strand)]+=mlen;
+				if (mlen<(blen*(P2In->Similarity))){
+					continue;
 				}
+
+				string name=mi->seq[r->rid].name;
+				string strand = r->rev ? "-" : "+";
+				maps[std::make_pair(name, strand)]+=mlen;
 			}
 			free(reg);
 		}
@@ -660,6 +682,10 @@ string AssemblyAdapter(Para_A24 *P2In, const kc_c4x_t *h, string &FilePath, int 
     }
 
 	mean_depth=int(min_adapter_depth/(best_adapter.length()));
+	if(mean_depth>=5){
+		cout << "INFO: found adapter"<<endl;
+		cout <<best_adapter<<endl;
+	}
 
 	return best_adapter;
 }
@@ -883,7 +909,7 @@ string Get_filter_parameter(Para_A24 *P2In, string &libname){
 	len_3p=adapter_3p.length();
 
 	if(len_5p==0 && len_3p==0){
-		cout << "Warnings: the adapter could not be found within the general adapter library.";
+		cout << "Warnings: the adapter could not be found within the general adapter library."<<endl;
 		int p=10;
 		uint64_t block_size = 10000000;
 
@@ -1479,8 +1505,7 @@ void Filter_reads_adapter_gz(Para_A24 *P2In, vector<string> &ID, vector <string>
 					vector <string> &QUAL, const mm_idx_t* mi, mm_mapopt_t &mopt,
 					const mm_idx_t* emi, mm_mapopt_t &emopt, mm_tbuf_t *tbuf,
 					std::array<uint64_t, 14>& DropInfo,
-					uint8_t ** ComData, size_t & ComSize,
-					size_t &ComBuff, int &tid){
+					uint8_t * ComData, size_t & ComSize){
 	string OUT_DATA="";
 	OUT_DATA.reserve(OUTPUT_BUFFER_SIZE);
 	if(QUAL[0].length()<=2){
@@ -1496,15 +1521,15 @@ void Filter_reads_adapter_gz(Para_A24 *P2In, vector<string> &ID, vector <string>
 	if (!(OUT_DATA.empty())) {
 		DeflateCompress  GZData;
 		size_t inputSize  = OUT_DATA.length();
-		GZData.compressData(OUT_DATA.c_str(), inputSize, ComData, 
-							ComSize,ComBuff,tid);
+		GZData.compressData(OUT_DATA.c_str(), inputSize, ComData, ComSize);
+	}else{
+		ComSize=0;
 	}
 }
 
 void Filter_reads_gz(Para_A24 * P2In, vector<string> &ID, vector <string> &SEQ, 
 					vector <string> &QUAL, std::array<uint64_t, 14>& DropInfo,
-					uint8_t ** ComData, size_t & ComSize,
-					size_t & ComBuff, int &tid){
+					uint8_t * ComData, size_t & ComSize){
 	string OUT_DATA="";
 	OUT_DATA.reserve(OUTPUT_BUFFER_SIZE);
 	if(QUAL[0].length()<=2){
@@ -1519,7 +1544,9 @@ void Filter_reads_gz(Para_A24 * P2In, vector<string> &ID, vector <string> &SEQ,
 		DeflateCompress  GZData;
 		size_t inputSize  = OUT_DATA.length();
 		GZData.compressData(OUT_DATA.c_str(), inputSize, ComData, 
-							ComSize,ComBuff,tid);
+							ComSize);
+	}else{
+		ComSize=0;
 	}
 }
 
@@ -1559,17 +1586,13 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 	}
 
 	if (P2In->OUTGZ){
-		DeflateOgzstream OUTHGZ(outname.c_str());
+		ofstream OUTHGZ(outname.c_str(), std::ios::out | std::ios::binary);
 		uint8_t ** ComData = new uint8_t*[n_thread];
 		size_t * ComSize =new size_t [n_thread];
-		size_t * ComBuff =new size_t [n_thread];
 		
-		int * ArryThread=new int [n_thread];
 		for (int i = 0; i < n_thread; i++) {
 			ComData[i] = new uint8_t[OUTPUT_BUFFER_SIZE];
 			ComSize[i]=OUTPUT_BUFFER_SIZE;
-			ComBuff[i]=OUTPUT_BUFFER_SIZE;
-			ArryThread[i]=i;
 		}
 		
 		int tid=0;
@@ -1601,8 +1624,7 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 					threads.push_back(thread(Filter_reads_adapter_gz,P2In, ref(ID[tid]), 
 										ref(SEQ[tid]),ref(QUAL[tid]),ref(mi),ref(mopt),ref(emi),ref(emopt),
 										ref(tbufs[tid]),ref(DropInfo[tid]),
-										ComData, ref(ComSize[tid]),
-										ref(ComBuff[tid]), ref(ArryThread[tid])));
+										ref(ComData[tid]), ref(ComSize[tid])));
 					tid++;
 					total_length = 0;
 
@@ -1613,7 +1635,7 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 						threads.clear();
 						for (int i = 0; i < n_thread; i++) {
 							if (ComSize[i]>0) {
-								OUTHGZ.writeGZIO(ComData[i], ComSize[i] );
+								OUTHGZ.write((const char*) ComData[i], ComSize[i]);
 							}
 							ID[i].clear();
 							SEQ[i].clear();
@@ -1628,8 +1650,7 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 				threads.push_back(thread(Filter_reads_adapter_gz,P2In, ref(ID[tid]), 
 								ref(SEQ[tid]),ref(QUAL[tid]),ref(mi), ref(mopt),ref(emi),ref(emopt),
 								ref(tbufs[tid]),ref(DropInfo[tid]),
-								ComData, ref(ComSize[tid]),
-								ref(ComBuff[tid]), ref(ArryThread[tid])));
+								ref(ComData[tid]), ref(ComSize[tid])));
 				total_length = 0;
 			}
 			
@@ -1641,7 +1662,7 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 
 			for (int i = 0; i <= tid; i++) {
 				if (ComSize[i]>0) {
-					OUTHGZ.writeGZIO(ComData[i], ComSize[i] );
+					OUTHGZ.write((const char*) ComData[i], ComSize[i]);
 				}
 				ID[i].clear();
 				SEQ[i].clear();
@@ -1652,10 +1673,8 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 				delete[]  ComData[i] ;
 			}
 				
-			delete [] ComSize;
-			delete [] ComBuff;
 			delete [] ComData;
-			delete [] ArryThread;
+			delete [] ComSize;
 
         	mm_idx_destroy(mi);
 		}
@@ -1821,16 +1840,13 @@ int Run_seq_filter(Para_A24 * P2In) {
 
 	int total_length = 0;
 	if (P2In->OUTGZ){
-		DeflateOgzstream OUTHGZ(outname.c_str());
+		ofstream OUTHGZ(outname.c_str(), std::ios::out | std::ios::binary);
 		uint8_t ** ComData = new uint8_t*[n_thread];
 		size_t * ComSize =new size_t [n_thread];
-		size_t * ComBuff =new size_t [n_thread];
-		int * ArryThread=new int [n_thread];
+
 		for (int i = 0; i < n_thread; i++) {
 			ComData[i] = new uint8_t[OUTPUT_BUFFER_SIZE];
 			ComSize[i]=OUTPUT_BUFFER_SIZE;
-			ComBuff[i]=OUTPUT_BUFFER_SIZE;
-			ArryThread[i]=i;
 		}
 		
 		int tid=0;
@@ -1849,8 +1865,7 @@ int Run_seq_filter(Para_A24 * P2In) {
 			if (total_length >= BLOCK_SIZE) {
 				threads.push_back(thread(Filter_reads_gz,P2In, ref(ID[tid]), 
 									ref(SEQ[tid]),ref(QUAL[tid]),ref(DropInfo[tid]),
-									ComData, ref(ComSize[tid]),
-									ref(ComBuff[tid]), ref(ArryThread[tid])));
+									ref(ComData[tid]), ref(ComSize[tid])));
 				tid++;
 				total_length = 0;
 
@@ -1861,7 +1876,7 @@ int Run_seq_filter(Para_A24 * P2In) {
 					threads.clear();
 					for (int i = 0; i < n_thread; i++) {
 						if (ComSize[i]>0) {
-							OUTHGZ.writeGZIO(ComData[i], ComSize[i] );
+							OUTHGZ.write((const char*) ComData[i], ComSize[i]);
 						}
 						ID[i].clear();
 						SEQ[i].clear();
@@ -1875,8 +1890,7 @@ int Run_seq_filter(Para_A24 * P2In) {
 		if (!SEQ[tid].empty()) {
 			threads.push_back(thread(Filter_reads_gz,P2In, ref(ID[tid]), 
 							ref(SEQ[tid]),ref(QUAL[tid]),ref(DropInfo[tid]),
-							ComData, ref(ComSize[tid]),
-							ref(ComBuff[tid]), ref(ArryThread[tid])));
+							ref(ComData[tid]), ref(ComSize[tid])));
 			total_length = 0;
 		}
 		
@@ -1888,7 +1902,7 @@ int Run_seq_filter(Para_A24 * P2In) {
 
 		for (int i = 0; i <= tid; i++) {
 			if (ComSize[i]>0) {
-				OUTHGZ.writeGZIO(ComData[i], ComSize[i] );
+				OUTHGZ.write((const char*) ComData[i], ComSize[i]);
 			}
 			ID[i].clear();
 			SEQ[i].clear();
@@ -1899,10 +1913,8 @@ int Run_seq_filter(Para_A24 * P2In) {
 			delete[]  ComData[i] ;
 		}
 			
-		delete [] ComSize;
-		delete [] ComBuff;
 		delete [] ComData;
-		delete [] ArryThread;
+		delete [] ComSize;
 
 	} else {
 		ofstream OUTH;
