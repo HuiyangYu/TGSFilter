@@ -596,12 +596,6 @@ string AssemblyAdapter(Para_A24 *P2In, const kc_c4x_t *h, string &FilePath, int 
             }
         }
     }
-
-    for (const auto& source : edges) {
-        for (const auto& target : source.second) {
-            std::cout << source.first << ":" << target.first << " : " << target.second<< std::endl;
-        }
-    }
     
     string best_adapter;
 	int min_adapter_depth=0;
@@ -649,7 +643,6 @@ string AssemblyAdapter(Para_A24 *P2In, const kc_c4x_t *h, string &FilePath, int 
                         if (adapter_depth>min_adapter_depth){
                             best_adapter=adapter;
                             min_adapter_depth=adapter_depth;
-                            cout <<best_adapter<<" "<<min_adapter_depth<<endl;
                         }
                     }
                     adapter="";
@@ -662,7 +655,6 @@ string AssemblyAdapter(Para_A24 *P2In, const kc_c4x_t *h, string &FilePath, int 
             if (adapter_depth>min_adapter_depth){
                 best_adapter=adapter;
                 min_adapter_depth=adapter_depth;
-                cout <<best_adapter<<" "<<min_adapter_depth<<endl;
             }
         }
     }
