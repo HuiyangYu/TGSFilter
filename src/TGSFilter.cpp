@@ -36,8 +36,8 @@ int  TGSFilter_usage() {
 		"   -w	<int>   windows size to cut off low quality region [50]\n"
 		"   -n	<int>   read number for base content check [200000]\n"
 		"   -e	<int>   read end length for base content check [100]\n"
-		"   -5	<int>   trim bases from the front (5') of the read [auto]\n"
-		"   -3	<int>   trim bases from the tail (3') of the read [auto]\n"
+		"   -5	<int>   drop bases from the front (5') of the read [auto]\n"
+		"   -3	<int>   drop bases from the tail (3') of the read [auto]\n"
 		//"   -x	<int>   min length to detect polyX in the read tail [10]\n"
 		//"   -d          disable polyA trimming \n"
 		" Adapter filter options:\n"
@@ -48,7 +48,7 @@ int  TGSFilter_usage() {
 		"   -k	<int>   kmer size for adapter assembly [15]\n"
 		"   -y	<int>   min assembly adapter length [20]\n"
 		"   -m	<int>   min match length between read end and adapter [5]\n"
-		"   -M	<int>   min match length between read middle and adapter [5]\n"
+		"   -M	<int>   min match length between read middle and adapter [auto]\n"
 		"   -s  <float>  min similarity between read and adapter [0.8]\n"
 		" Other options:\n"
 		"   -t           number of threads [3]\n"
@@ -87,8 +87,6 @@ class Para_A24 {
 		int MidLen;
 		float Similarity;
 		//
-		
-		//
 		int Infq;
 		int Outfq;
 		bool OUTGZ;
@@ -118,7 +116,7 @@ class Para_A24 {
 			Kmer=15;
 			AdapterLen=20;
 			MatchLen=5;
-			MidLen=20;
+			MidLen=-1;
 			Similarity=0.8;
 			//
 			Infq=1;
@@ -222,7 +220,6 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			P2In->PolyX=true;
 		}
 		
-
 		//Adapter filter options
 		else if (flag == "a"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
@@ -349,22 +346,14 @@ int GetFileType(const string& FilePath) {
 	return fqfile;
 }
 
-char complement(const char &base) {
-    switch (base) {
-        case 'A': return 'T';
-        case 'T': return 'A';
-        case 'C': return 'G';
-        case 'G': return 'C';
-        default: return base;
-    }
-}
-
+char complement[256];
 string rev_comp_seq(const string& dna) {
-    string reverse_complement;
-    for (int i = dna.size() - 1; i >= 0; --i) {
-        reverse_complement += complement(dna[i]);
-    }
-    return reverse_complement;
+	
+	string reverse_complement;
+	for (int i = dna.size() - 1; i >= 0; --i) {
+		reverse_complement += complement[dna[i]];
+	}
+	return reverse_complement;
 }
 
 void get_seqDict(string &libname, std::map<std::string, std::string> &seqDict){
@@ -443,7 +432,6 @@ string adapterSearch(Para_A24 *P2In, string &libname, string &readsname, int &me
 			free(reg);
 		}
 		mm_tbuf_destroy(tbuf);
-
         mm_idx_destroy(mi);
 	}
 	mm_idx_reader_close(r); // close the index reader
@@ -825,8 +813,8 @@ string Get_filter_parameter(Para_A24 *P2In, string &libname){
 	if ((P2In->TailCrop)<0){
 		P2In->TailCrop=tailDrop;
 	}
-	cout << "INFO: front drop length: "<<P2In->HeadCrop<<endl;
-	cout << "INFO: tail drop length: "<<P2In->TailCrop<<endl;
+	cout << "INFO: trim front length: "<<P2In->HeadCrop<<endl;
+	cout << "INFO: trim tail length: "<<P2In->TailCrop<<endl;
 
 	//mean phred quality
 	int qType=0;
@@ -884,16 +872,25 @@ string Get_filter_parameter(Para_A24 *P2In, string &libname){
 	}
 	OUTHT.close();
 
+	headSeq.clear();
+	tailSeq.clear();
+	std::map<std::string, std::string>().swap(headSeq);
+	std::map<std::string, std::string>().swap(tailSeq);
+
 	string adapter_5p;
 	string adapter_3p;
 	int depth_5p;
 	int depth_3p;
+	int len_5p=0;
+	int len_3p=0;
 	cout << "INFO: searching 5' adapter..."<<endl;
 	adapter_5p=adapterSearch(P2In, libname, out_front, depth_5p);
+	len_5p=adapter_5p.length();
 	cout << "INFO: searching 3' adapter..."<<endl;
 	adapter_3p=adapterSearch(P2In, libname, out_tail, depth_3p);
+	len_3p=adapter_3p.length();
 
-	if(adapter_5p.length()==0 && adapter_3p.length()==0){
+	if(len_5p==0 && len_3p==0){
 		cout << "Warnings: the adapter could not be found within the general adapter library.";
 		int p=10;
 		uint64_t block_size = 10000000;
@@ -901,23 +898,25 @@ string Get_filter_parameter(Para_A24 *P2In, string &libname){
 		cout << "INFO: assembly 5' adapter..."<<endl;
 		kc_c4x_t *fh;
 		fh = count_file(out_front.c_str(), P2In->Kmer, p, block_size, n_thread);
-		string adapter_5p=AssemblyAdapter(P2In, fh, out_front, depth_5p);
+		adapter_5p=AssemblyAdapter(P2In, fh, out_front, depth_5p);
+		len_5p=adapter_5p.length();
 		for (int i = 0; i < 1<<p; ++i) kc_c4_destroy(fh->h[i]);
 		free(fh->h); free(fh);
 
 		cout << "INFO: assembly 3' adapter..."<<endl;
 		kc_c4x_t *th;
 		th = count_file(out_tail.c_str(), P2In->Kmer, p, block_size, n_thread);
-		string adapter_3p=AssemblyAdapter(P2In, th, out_tail, depth_3p);
+		adapter_3p=AssemblyAdapter(P2In, th, out_tail, depth_3p);
+		len_3p=adapter_3p.length();
 		for (int i = 0; i < 1<<p; ++i) kc_c4_destroy(th->h[i]);
 		free(th->h); free(th);
 	}
 	// write adapter
 	string adapter_out;
-	if(adapter_5p.length()!=0 || adapter_3p.length()!=0){
+	if(len_5p != 0 || len_3p != 0){
 		adapter_out=prefix+".adapter.fa";
 		ofstream OUTHA(adapter_out);
-		if (adapter_5p.length()>0 && adapter_3p.length()>0){
+		if (len_5p >0 && len_3p >0){
 			string rev_3p=rev_comp_seq(adapter_3p);
 			if ((adapter_5p == adapter_3p) || (adapter_5p == rev_3p)){
 				OUTHA <<">adapter_5-3p"<<"\n"<<adapter_5p<<endl;
@@ -925,13 +924,21 @@ string Get_filter_parameter(Para_A24 *P2In, string &libname){
 				OUTHA <<">adapter_5p"<<"\n"<<adapter_5p<<endl;
 				OUTHA <<">adapter_3p"<<"\n"<<adapter_3p<<endl;
 			}
-		}else if(adapter_5p.length()>0){
+		}else if(len_5p >0){
 			OUTHA <<">adapter_5p"<<"\n"<<adapter_5p<<endl;
-		}else if(adapter_3p.length()>0){
+		}else if(len_3p >0){
 			OUTHA <<">adapter_3p"<<"\n"<<adapter_3p<<endl;
 		}
 		OUTHA.close();
 	}
+	
+	int minLen=len_5p;
+	if (minLen>len_3p){
+		minLen=len_3p;
+	}
+	P2In->MidLen=int(minLen*(P2In->Similarity));
+	cout << "INFO: min match length in middle was set to: "<<P2In->MidLen<<endl;
+
 	remove(out_front.c_str());
 	remove(out_tail.c_str());
 	return adapter_out;
@@ -951,7 +958,7 @@ double CalcAvgQuality(const string &qual) {
 
 void Split_low_qual_region_to_fastq(Para_A24 *P2In, string &raw_id, string &raw_seq, 
 							string &raw_qual, int &seqLen, int &pass_num, string &OUT_DATA,
-							std::array<uint64_t, 14> &DropInfo){
+							std::array<uint64_t, 14>& DropInfo){
 	string out_seq;
 	string out_qual;
 	string segment_seq;
@@ -1097,14 +1104,14 @@ void Split_low_qual_region_to_fasta(Para_A24 *P2In, string &raw_id, string &raw_
 	}
 }
 
-void adapterMap(Para_A24 *P2In, string &raw_seq, int &raw_len,
+void adapterMap(Para_A24 * P2In, string &raw_seq, int &raw_len,
 				const mm_idx_t* mi, mm_mapopt_t &mopt,
-				const mm_idx_t* emi, mm_mapopt_t &emopt,
+				const mm_idx_t* emi, mm_mapopt_t &emopt, mm_tbuf_t *tbuf,
 				std::vector<std::vector<int>> &keepRegions,
-				std::array<uint64_t, 14> &DropInfo){
+				std::array<uint64_t, 14>& DropInfo){
 
-	mm_tbuf_t *tbuf = mm_tbuf_init();
 	std::vector<std::vector<int>> adapterRegions;
+	int minLen=UINT64_MAX;
 	
 	//for middle
 	mm_reg1_t *reg;
@@ -1118,30 +1125,35 @@ void adapterMap(Para_A24 *P2In, string &raw_seq, int &raw_len,
 		int tl=mi->seq[r->rid].len;
 		int ts=r->rs;
 		int te=r->re;
+
 		int mlen=r->mlen;
-		int oh=tl * (1-(P2In->Similarity));
-		float similarity;
-		if (qs<=oh && mlen>=P2In->MatchLen){
-			similarity=static_cast<float>(mlen) / qe;
-		}else if((ql-qe)<=oh && mlen>=P2In->MatchLen){
-			similarity=static_cast<float>(mlen) / (ql-qs);
-		}else if (mlen>=P2In->MidLen){
-			int blen=r->blen;
-			if (blen<tl){
-				blen=tl;
-			}
-			similarity=static_cast<float>(mlen) / blen;
+		if(mlen<P2In->MidLen){
+			continue;
 		}
 
-		if (similarity>=(P2In->Similarity)){
-			adapterRegions.push_back({qs, qe});
+		int blen=r->blen;
+		if (blen<tl){
+			blen=tl;
 		}
+
+		if (mlen<(blen*(P2In->Similarity))){
+			continue;
+		}
+		if (tl<minLen){
+			minLen=tl;
+		}
+		adapterRegions.push_back({qs, qe});
 	}
 	free(reg);
+	//
+	int endLen=minLen;
+	if (endLen<50){
+		endLen=50;
+	}
 
 	//for head end
-	string head_seq=raw_seq.substr(0,100);
-	int head_len=100;
+	string head_seq=raw_seq.substr(0,endLen);
+	int head_len=endLen;
 	mm_reg1_t *hreg;
 	int hj, hn_reg;
 	hreg = mm_map(emi, head_len, head_seq.c_str(), &hn_reg, tbuf, &emopt, 0);
@@ -1155,29 +1167,22 @@ void adapterMap(Para_A24 *P2In, string &raw_seq, int &raw_len,
 		int ts=r->rs;
 		int te=r->re;
 		int mlen=r->mlen;
-		int oh=tl * (1-(P2In->Similarity));
-		float similarity;
-		if (qs<=oh && mlen>=P2In->MatchLen){
-			similarity=static_cast<float>(mlen) / qe;
-		}else if((ql-qe)<=oh && mlen>=P2In->MatchLen){
-			similarity=static_cast<float>(mlen) / (ql-qs);
-		}else if (mlen>=P2In->MidLen){
-			int blen=r->blen;
-			if (blen<tl){
-				blen=tl;
-			}
-			similarity=static_cast<float>(mlen) / blen;
+
+		if(mlen<P2In->MatchLen){
+			continue;
 		}
 
-		if (similarity>=(P2In->Similarity)){
-			adapterRegions.push_back({qs, qe});
+		int blen=qe;
+		if (mlen<(blen*(P2In->Similarity))){
+			continue;
 		}
+		adapterRegions.push_back({qs, qe});
 	}
 	free(hreg);
 
 	//for tail end
-	string tail_seq=raw_seq.substr(raw_len-100,100);
-	int tail_len=100;
+	string tail_seq=raw_seq.substr(raw_len-endLen,endLen);
+	int tail_len=endLen;
 	mm_reg1_t *treg;
 	int tj, tn_reg;
 	treg = mm_map(emi, tail_len, tail_seq.c_str(), &tn_reg, tbuf, &emopt, 0);
@@ -1190,26 +1195,17 @@ void adapterMap(Para_A24 *P2In, string &raw_seq, int &raw_len,
 		int ts=r->rs;
 		int te=r->re;
 		int mlen=r->mlen;
-		int oh=tl * (1-(P2In->Similarity));
-		float similarity;
-		if (qs<=oh && mlen>=P2In->MatchLen){
-			similarity=static_cast<float>(mlen) / qe;
-		}else if((ql-qe)<=oh && mlen>=P2In->MatchLen){
-			similarity=static_cast<float>(mlen) / (ql-qs);
-		}else if (mlen>=P2In->MidLen){
-			int blen=r->blen;
-			if (blen<tl){
-				blen=tl;
-			}
-			similarity=static_cast<float>(mlen) / blen;
-		}
 
-		if (similarity>=(P2In->Similarity)){
-			adapterRegions.push_back({qs+raw_len-100, qe+raw_len-100});
+		if(mlen<P2In->MatchLen){
+			continue;
 		}
+		int blen=ql-qs;
+		if (mlen<(blen*(P2In->Similarity))){
+			continue;
+		}
+		adapterRegions.push_back({qs+raw_len-endLen, qe+raw_len-endLen});
 	}
 	free(treg);
-	mm_tbuf_destroy(tbuf);
 
 	if (adapterRegions.size() >= 2) {
 		std::sort(adapterRegions.begin(), adapterRegions.end(), [](const std::vector<int>& a, const std::vector<int>& b) {
@@ -1249,8 +1245,8 @@ void adapterMap(Para_A24 *P2In, string &raw_seq, int &raw_len,
 void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 						vector<string>& ID, vector <string> &SEQ, vector <string> &QUAL,
 						const mm_idx_t* mi, mm_mapopt_t &mopt, 
-						const mm_idx_t* emi, mm_mapopt_t &emopt,
-						std::array<uint64_t, 14> &DropInfo){
+						const mm_idx_t* emi, mm_mapopt_t &emopt,mm_tbuf_t *tbuf,
+						std::array<uint64_t, 14>& DropInfo){
 
 	int headCrop = P2In->HeadCrop;
 	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
@@ -1283,7 +1279,7 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 		}
 
 		std::vector<std::vector<int>> keepRegions;
-		adapterMap(P2In, raw_seq, raw_len, mi, mopt, emi, emopt, keepRegions,DropInfo);
+		adapterMap(P2In, raw_seq, raw_len, mi, mopt, emi, emopt, tbuf, keepRegions,DropInfo);
 
 		string raw_id=ID[i];
 		int pass_num=0;
@@ -1321,9 +1317,9 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 	}
 }
 
-void Filter_fastq_reads(Para_A24 *P2In, string &OUT_DATA, vector<string> &ID, 
+void Filter_fastq_reads(Para_A24 * P2In, string &OUT_DATA, vector<string>& ID, 
 						vector <string> &SEQ, vector <string> &QUAL,
-						std::array<uint64_t, 14> &DropInfo){
+						std::array<uint64_t, 14>& DropInfo){
 	int headCrop = P2In->HeadCrop;
 	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
 
@@ -1363,15 +1359,14 @@ void Filter_fastq_reads(Para_A24 *P2In, string &OUT_DATA, vector<string> &ID,
 			Split_low_qual_region_to_fasta(P2In, raw_id, raw_seq, raw_qual, 
 											raw_len, pass_num, OUT_DATA,DropInfo);
 		}
-	}
+	}    
 }
 
-void Filter_fasta_reads_adapter(Para_A24 *P2In,string &OUT_DATA, 
-						vector<string> &ID, vector <string> &SEQ,
+void Filter_fasta_reads_adapter(Para_A24 * P2In,string &OUT_DATA, 
+						vector<string>& ID, vector <string> & SEQ,
                         const mm_idx_t* mi, mm_mapopt_t &mopt, 
-						const mm_idx_t* emi, mm_mapopt_t &emopt,
-						std::array<uint64_t, 14> &DropInfo) {
-	
+						const mm_idx_t* emi, mm_mapopt_t &emopt, mm_tbuf_t *tbuf,
+						std::array<uint64_t, 14>& DropInfo) {
 	int headCrop = P2In->HeadCrop;
 	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
 	
@@ -1401,7 +1396,7 @@ void Filter_fasta_reads_adapter(Para_A24 *P2In,string &OUT_DATA,
 		}
 
         std::vector<std::vector<int>> keepRegions;
-		adapterMap(P2In, raw_seq, raw_len, mi, mopt, emi, emopt, keepRegions,DropInfo);
+		adapterMap(P2In, raw_seq, raw_len, mi, mopt, emi, emopt, tbuf, keepRegions,DropInfo);
         
         string seq_id=ID[i];
         int pass_num=0;
@@ -1427,8 +1422,8 @@ void Filter_fasta_reads_adapter(Para_A24 *P2In,string &OUT_DATA,
 	}
 }
 
-void Filter_fasta_reads(Para_A24 *P2In,string &OUT_DATA, vector<string> &ID, 
-						vector <string> &SEQ, std::array<uint64_t, 14> &DropInfo) {
+void Filter_fasta_reads(Para_A24 * P2In,string &OUT_DATA, vector<string> &ID, 
+						vector <string> &SEQ, std::array<uint64_t, 14>& DropInfo) {
 	int headCrop = P2In->HeadCrop;
 	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
 
@@ -1466,18 +1461,20 @@ void Filter_fasta_reads(Para_A24 *P2In,string &OUT_DATA, vector<string> &ID,
 void Filter_reads_adapter(Para_A24 * P2In, string &OUT_DATA, 
 				vector<string> &ID, vector <string> &SEQ, vector <string> &QUAL,
 				const mm_idx_t* mi, mm_mapopt_t &mopt, 
-				const mm_idx_t* emi, mm_mapopt_t &emopt,
-				std::array<uint64_t, 14> &DropInfo){
+				const mm_idx_t* emi, mm_mapopt_t &emopt, mm_tbuf_t *tbuf,
+				std::array<uint64_t, 14>& DropInfo){
 	OUT_DATA="";
 	if(QUAL[0].length()<=2){
-		Filter_fasta_reads_adapter(P2In, OUT_DATA, ID, SEQ, mi, mopt,emi, emopt, DropInfo);
+		Filter_fasta_reads_adapter(P2In, OUT_DATA, ID, SEQ, mi, mopt,emi, emopt, tbuf,
+								   DropInfo);
 	} else {
-		Filter_fastq_reads_adapter(P2In, OUT_DATA, ID, SEQ, QUAL, mi, mopt, emi, emopt, DropInfo);
+		Filter_fastq_reads_adapter(P2In, OUT_DATA, ID, SEQ, QUAL, mi, mopt, emi, emopt,tbuf,
+								   DropInfo);
 	}
 }
 
-void Filter_reads(Para_A24 *P2In, string &OUT_DATA, vector<string> &ID, 
-				vector <string> &SEQ, vector <string> &QUAL, std::array<uint64_t, 14> &DropInfo){
+void Filter_reads(Para_A24 * P2In, string &OUT_DATA, vector<string> &ID, 
+				vector <string> &SEQ, vector <string> &QUAL, std::array<uint64_t, 14>& DropInfo){
 	OUT_DATA="";
 	if(QUAL[0].length()<=2){
 		Filter_fasta_reads(P2In, OUT_DATA, ID, SEQ, DropInfo);
@@ -1488,17 +1485,19 @@ void Filter_reads(Para_A24 *P2In, string &OUT_DATA, vector<string> &ID,
 
 void Filter_reads_adapter_gz(Para_A24 *P2In, vector<string> &ID, vector <string> &SEQ, 
 					vector <string> &QUAL, const mm_idx_t* mi, mm_mapopt_t &mopt,
-					const mm_idx_t* emi, mm_mapopt_t &emopt,
+					const mm_idx_t* emi, mm_mapopt_t &emopt, mm_tbuf_t *tbuf,
 					std::array<uint64_t, 14>& DropInfo,
-					uint8_t ** ComData, size_t &ComSize,
+					uint8_t ** ComData, size_t & ComSize,
 					size_t &ComBuff, int &tid){
 	string OUT_DATA="";
 	OUT_DATA.reserve(OUTPUT_BUFFER_SIZE);
 	if(QUAL[0].length()<=2){
-		Filter_fasta_reads_adapter(P2In, OUT_DATA, ID, SEQ, mi, mopt,emi, emopt, DropInfo);
+		Filter_fasta_reads_adapter(P2In, OUT_DATA, ID, SEQ, mi, mopt,emi, emopt, tbuf, 
+									DropInfo);
 
 	} else {
-		Filter_fastq_reads_adapter(P2In, OUT_DATA, ID, SEQ, QUAL, mi, mopt,emi, emopt, DropInfo);
+		Filter_fastq_reads_adapter(P2In, OUT_DATA, ID, SEQ, QUAL, mi, mopt,emi, emopt,tbuf,
+									DropInfo);
 		
 	}
 	
@@ -1511,9 +1510,9 @@ void Filter_reads_adapter_gz(Para_A24 *P2In, vector<string> &ID, vector <string>
 }
 
 void Filter_reads_gz(Para_A24 * P2In, vector<string> &ID, vector <string> &SEQ, 
-					vector <string> &QUAL, std::array<uint64_t, 14> &DropInfo,
-					uint8_t ** ComData, size_t &ComSize,
-					size_t &ComBuff, int &tid){
+					vector <string> &QUAL, std::array<uint64_t, 14>& DropInfo,
+					uint8_t ** ComData, size_t & ComSize,
+					size_t & ComBuff, int &tid){
 	string OUT_DATA="";
 	OUT_DATA.reserve(OUTPUT_BUFFER_SIZE);
 	if(QUAL[0].length()<=2){
@@ -1559,7 +1558,13 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 
 	string outname=P2In->OutFile;
 	int total_length = 0;
+	//
 	int index_thread=1;
+	//
+	mm_tbuf_t *tbufs[n_thread];
+	for (int i = 0; i < n_thread; i++) {
+		tbufs[i] = mm_tbuf_init();
+	}
 
 	if (P2In->OUTGZ){
 		DeflateOgzstream OUTHGZ(outname.c_str());
@@ -1603,7 +1608,8 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 				if (total_length >= BLOCK_SIZE) {
 					threads.push_back(thread(Filter_reads_adapter_gz,P2In, ref(ID[tid]), 
 										ref(SEQ[tid]),ref(QUAL[tid]),ref(mi),ref(mopt),ref(emi),ref(emopt),
-										ref(DropInfo[tid]), ComData, ref(ComSize[tid]),
+										ref(tbufs[tid]),ref(DropInfo[tid]),
+										ComData, ref(ComSize[tid]),
 										ref(ComBuff[tid]), ref(ArryThread[tid])));
 					tid++;
 					total_length = 0;
@@ -1629,7 +1635,8 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 			if (!SEQ[tid].empty()) {
 				threads.push_back(thread(Filter_reads_adapter_gz,P2In, ref(ID[tid]), 
 								ref(SEQ[tid]),ref(QUAL[tid]),ref(mi), ref(mopt),ref(emi),ref(emopt),
-								ref(DropInfo[tid]), ComData, ref(ComSize[tid]),
+								ref(tbufs[tid]),ref(DropInfo[tid]),
+								ComData, ref(ComSize[tid]),
 								ref(ComBuff[tid]), ref(ArryThread[tid])));
 				total_length = 0;
 			}
@@ -1697,7 +1704,8 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 					
 					threads.push_back(thread(Filter_reads_adapter,P2In, ref(OUT_DATA[tid]), 
 							ref(ID[tid]),ref(SEQ[tid]),ref(QUAL[tid]),
-							ref(mi), ref(mopt),ref(emi),ref(emopt), ref(DropInfo[tid])));
+							ref(mi), ref(mopt),ref(emi),ref(emopt),ref(tbufs[tid]),
+							ref(DropInfo[tid])));
 					tid++;
 					total_length = 0;
 
@@ -1722,7 +1730,8 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 			if (!SEQ[tid].empty()) {
 				threads.push_back(thread(Filter_reads_adapter,P2In, ref(OUT_DATA[tid]), 
 						ref(ID[tid]),ref(SEQ[tid]),ref(QUAL[tid]),
-						ref(mi), ref(mopt),ref(emi),ref(emopt), ref(DropInfo[tid])));
+						ref(mi), ref(mopt),ref(emi),ref(emopt),ref(tbufs[tid]),
+						ref(DropInfo[tid])));
 				total_length = 0;
 			}
 
@@ -1764,6 +1773,7 @@ int Run_seq_filter_adapter(Para_A24 * P2In,string &adapter_name,
 	uint64_t outDrop_bases=0;
 
 	for (int i = 0; i < n_thread; i++) {
+		mm_tbuf_destroy(tbufs[i]);
 		raw_reads+=DropInfo[i][0];
 		raw_bases+=DropInfo[i][1];
 		clean_reads+=DropInfo[i][2];
@@ -2051,22 +2061,24 @@ int Run_TGSFilter(Para_A24 * P2In, string &libname) {
 	}
 
 	//
+	int mk=P2In->MatchLen;
+	if (mk % 2 != 1) {
+        mk--;
+    }
+
 	mm_idxopt_t iopt;
 	mm_mapopt_t mopt;
-
+	int cnt=(P2In->MidLen)/mk;
 	mm_verbose = 2;
 	mm_set_opt(0, &iopt, &mopt);
 	iopt.k=15;
 	iopt.w=1;
 	mopt.flag |= MM_F_CIGAR;
-	mopt.min_cnt = 1;
-	mopt.min_chain_score =15;
-	mopt.min_dp_max=15;
+	mopt.min_cnt = cnt;
+	mopt.min_chain_score =mk;
+	mopt.min_dp_max=mk;
 	//
-	int mk=P2In->MatchLen;
-	if (mk % 2 != 1) {
-        mk--;
-    }
+	
 	mm_idxopt_t eiopt;
 	mm_mapopt_t emopt;
 
@@ -2134,6 +2146,21 @@ int main (int argc, char *argv[ ]) {
 		delete P2In ;
 		return 1 ;
 	}
+
+	for (int i=0; i<256;i++) {
+		complement[i]='N';
+	}
+	
+	complement['A']='T'; complement['G']='C';  
+	complement['C']='G'; complement['T']='A';
+	complement['a']='t'; complement['g']='c';  
+	complement['c']='g'; complement['t']='a';
+	complement['M']='K'; complement['R']='Y';  
+	complement['W']='W'; complement['S']='S';  
+	complement['Y']='R'; complement['K']='M';
+	complement['m']='k'; complement['r']='y';  
+	complement['w']='w'; complement['s']='s';  
+	complement['y']='r'; complement['k']='m';
 
 	std::string programPath = argv[0];
 	std::string libname=get_lib_path(programPath);
