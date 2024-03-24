@@ -78,24 +78,23 @@ tgsfilter -i ont.raw.fq.gz -o ont.clean.fq.gz -t 10
 ```
 The log information printed on the screen will contain the following content:
 ```
-INFO: front drop length: 98
-INFO: tail drop length: 12
-INFO: min mean base quality was set to: 7
 INFO: searching 5' adapter...
-INFO: found adapter
->ONT-3
-GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA
 INFO: searching 3' adapter...
-INFO: found adapter
->ONT-3
-GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA
+INFO: not found adapter
+INFO: 5' adapter: TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC
+INFO: 3' adapter: 
+INFO: mean depth of 5' adapter: 4686.72
+INFO: mean depth of 3' adapter: 0
+INFO: trim front length: 98
+INFO: trim tail length: 12
+INFO: min mean base quality was set to: 7
 5301056 reads with 166540954904 bases were input
 226266 reads with 199769142 bases were dropped before filter
 5074790 reads were trimmed 558226900 bases in end
-2020991 reads were trimmed 37190954 bases with adapter
-3755155 reads were trimmed 12636527461 bases with low quality regions
-73269822 reads with 10471421188 bases were dropped before output
-13058895 reads with 142637819259 bases were output
+1053724 reads were trimmed 41307383 bases with adapter
+358766 reads with 10869031124 bases were dropped with low quality
+679963 reads with 17490611 bases were dropped before output
+4707984 reads with 154855129744 bases were output
 ```
 
 ## 4. License
