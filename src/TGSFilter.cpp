@@ -530,10 +530,6 @@ string adapterSearch(Para_A24 *P2In, string &readsName, float &meanDep){
 	if (strand=="-"){
 		adapter=rev_comp_seq(adapter);
 	}
-
-	if (adapter.empty()){
-		cout << "INFO: not found adapter"<<endl;
-	}
 	
 	return adapter;
 }
