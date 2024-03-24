@@ -120,6 +120,12 @@ These three modes are executed sequentially. <br>
 Due to the uncertainty of the quality and content of adapters in sequencing reads, although the quality of the adapter region is typically low, and the adapter content in HIFI reads is much lower than in ONT reads, excessively large or small k-mers are not suitable. In our tests, k-mers of 19 or 21 can successfully assemble the adapter sequences in both HIFI and ONT sequences. <br>
 
 The read end length is also a factor affecting adapter identification, most adapters are present in the first 100bp of the 5' end and the last 100bp of the 3' end. Setting a detection length that is too large may mistakenly identify transposon sequences as adapters.
+### 4.4 How to set the output file format? 
+TGSFilter determines the output file format by recognizing the suffix of the output file name. For example:<br>
+
+If the suffix of the output file name is '.fasta.gz' or '.fa.gz', a compressed fasta format file will be output. <br>
+
+If the suffix of the output file name is '.fq' or '.fastq', an uncompressed fastq format file will be output.<br>
 
 ## 5. License
 -------
