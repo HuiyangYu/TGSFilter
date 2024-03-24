@@ -97,7 +97,7 @@ INFO: min mean base quality was set to: 7
 ```
 ## 4. FAQ
 ### 4.1 How to set parameters with a default value of 'auto'?
-\&#09  TGSFilter has three parameters that default to 'auto', namely '-q', '-5', and '-3'.  
+`&#09`  TGSFilter has three parameters that default to 'auto', namely '-q', '-5', and '-3'.  
 (1) '-q' parameter: By calculating the average quality value (meanQ) of the first 200,000 reads, if meanQ>=25, then -q is set to 20; if meanQ>=15 and <25, then -q is set to 10; otherwise, it is set to 7.<br>
 (2) '-5' and '-3' parameters: By analyzing the ratio of bases A and T at each position in the 100bp at the 5' and 3' ends of the first 200,000 reads, if there is a consecutive point difference greater than 1%, it is likely that the base distribution is unbalanced, and those regions containing these points are removed.<br>
 Of course, users can also directly set these parameters.<br>
