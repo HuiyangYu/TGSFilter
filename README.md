@@ -116,6 +116,8 @@ TGSFilter employs three modes for identifying adapter sequences.<br>
 
 These three modes are executed sequentially. <br>
 
+If you only want to identify adapters in your reads, you can add the '-A' parameter, which will instruct the program to only perform adapter search or assembly, taking less than 1 minute to complete.
+
 ### 4.3 How to set parameters for adapter assembly?
 Due to the uncertainty of the quality and content of adapters in sequencing reads, although the quality of the adapter region is typically low, and the adapter content in HIFI reads is much lower than in ONT reads, excessively large or small k-mers are not suitable. In our tests, k-mers of 19 or 21 can successfully assemble the adapter sequences in both HIFI and ONT sequences. <br>
 
