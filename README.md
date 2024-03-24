@@ -19,7 +19,7 @@ cd bin
 ```
 ## 2. Usage
 ```
-Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
+Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
  Input/Output options:
    -i	<str>   input of fasta/q file
    -o	<str>   output of fasta/q file
