@@ -80,7 +80,6 @@ The log information printed on the screen will contain the following content:
 ```
 INFO: searching 5' adapter...
 INFO: searching 3' adapter...
-INFO: not found adapter
 INFO: 5' adapter: TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC
 INFO: 3' adapter: 
 INFO: mean depth of 5' adapter: 4686.72
