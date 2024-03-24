@@ -28,7 +28,7 @@ using namespace std;
 
 int  TGSFilter_usage() {
 	cout <<""
-		"Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz\n"
+		"Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz\n"
 		" Input/Output options:\n"
 		"   -i	<str>   input of fasta/q file\n"
 		"   -o	<str>   output of fasta/q file\n"
