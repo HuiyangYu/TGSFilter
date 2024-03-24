@@ -15,7 +15,7 @@ KSEQ_INIT(gzFile, gzread)
 
 using namespace std;
 
-#define KC_BITS 10
+#define KC_BITS 15
 #define KC_MAX ((1<<KC_BITS) - 1)
 #define kc_c4_eq(a, b) ((a)>>KC_BITS == (b)>>KC_BITS) // lower 8 bits for counts; higher bits for k-mer
 #define kc_c4_hash(a) ((a)>>KC_BITS)
@@ -100,11 +100,13 @@ static void count_seq_buf(buf_c4_t *buf, int k, int p, int len, const char *seq)
 			x[0] = (x[0] << 2 | c) & mask;                  // forward strand
 			x[1] = x[1] >> 2 | (uint64_t)(3 - c) << shift;  // reverse strand
 			if (++l >= k) { // we find a k-mer
-				uint64_t y = x[0] < x[1]? x[0] : x[1];
-				uint64_t hash_value = hash64(y, mask);
-				if (seen_hashs.find(hash_value) == seen_hashs.end()) {
-					c4x_insert_buf(buf, p, hash_value);
-					seen_hashs.insert(hash_value);
+				if (x[0] != x[1]){
+					uint64_t y = x[0] < x[1]? x[0] : x[1];
+					uint64_t hash_value = hash64(y, mask);
+					if (seen_hashs.find(hash_value) == seen_hashs.end()) {
+						c4x_insert_buf(buf, p, hash_value);
+						seen_hashs.insert(hash_value);
+					}
 				}
 			}
 		} else l = 0, x[0] = x[1] = 0; // if there is an "N", restart
