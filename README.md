@@ -95,8 +95,24 @@ INFO: min mean base quality was set to: 7
 679963 reads with 17490611 bases were dropped before output
 4707984 reads with 154855129744 bases were output
 ```
+## 4. FAQ
+### 4.1 How to set parameters with a default value of 'auto'?
+TGSFilter has three parameters that default to 'auto', namely '-q', '-5', and '-3'.<br>
+'-q' parameter: By calculating the average quality value (meanQ) of the first 200,000 reads, if meanQ>=25, then -q is set to 20; if meanQ>=15 and <25, then -q is set to 10; otherwise, it is set to 7.<br>
+'-5' and '-3' parameters: By analyzing the ratio of bases A and T at each position in the 100bp at the 5' and 3' ends of the first 200,000 reads, if there is a consecutive point difference greater than 1%, it is likely that the base distribution is unbalanced, and those regions containing these points are removed.<br>
+Of course, users can also directly set these parameters.<br>
 
-## 4. License
+### 4.2 How does TGSFilter identify adapter sequences?
+TGSFilter employs three methods for identifying adapter sequences.<br>
+The first method: Users specify the adapter sequence through the '-a' parameter, which should be in fasta format.<br>
+The second method: Extract sequences of 100bp from the 5' and 3' ends, respectively, and compare them with an internal standard adapter library. If the global alignment rate is over 90%, the adapter is detected.<br>
+The third method: Calculate the k-mer frequency of the detected reads, filter out low-frequency k-mers and those with differences greater than fourfold, obtain candidate adapter sequences, and select the sequence with the highest k-mer coverage depth as the adapter sequence.<br>
+These three methods are executed sequentially; if the first method fails to identify the adapter, the next method is attempted. <br>
+
+### 4.3 How to set parameters for adapter assembly?
+Due to the uncertainty of the quality and content of adapters in sequencing reads, although the quality of the adapter region is typically low, and the adapter content in HIFI reads is much lower than in ONT reads, excessively large or small k-mers are not suitable. In our tests, k-mers of 19 or 21 can successfully assemble the adapter sequences in both HIFI and ONT sequences. The read end length is also a factor affecting adapter identification; most adapters are present in the first 100bp of the 5' end and the last 100bp of the 3' end. Setting a detection length that is too large may mistakenly identify transposon sequences as adapters.
+
+## 5. License
 -------
 
 This project is licensed under the GPL-3.0 license - see the [LICENSE](LICENSE) file for details
