@@ -860,10 +860,8 @@ int Get_filter_parameter(Para_A24 *P2In){
 	if(P2In->AverQ<0){
 		if (meanQ>=25){
 			P2In->AverQ=20;
-		}else if(meanQ>=15){
-			P2In->AverQ=10;
 		}else if(meanQ>0) {
-			P2In->AverQ=7;
+			P2In->AverQ=10;
 		}else{
 			P2In->AverQ=0;
 		}
