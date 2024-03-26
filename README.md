@@ -19,7 +19,7 @@ cd bin
 ```
 ## 2. Usage
 ```
-Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
+Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz
  Input/Output options:
    -i	<str>   input of fasta/q file
    -o	<str>   output of fasta/q file
@@ -27,10 +27,8 @@ Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
    -l	<int>   min length of read to out [1000]
    -L	<int>   max length of read to out
    -q	<int>   min mean base quality [auto]
-   -n	<int>   read number for base content check [200000]
-   -e	<int>   read end length for base content check [100]
-   -5	<int>   trim bases from the front (5') of the read [auto]
-   -3	<int>   trim bases from the tail (3') of the read [auto]
+   -5	<int>   trim bases from the 5' end of the read [0]
+   -3	<int>   trim bases from the 3' end of the read [0]
  Adapter filter options:
    -a	<str>   adapter sequence file 
    -A           disable reads filter, only for adapter identify
@@ -38,10 +36,11 @@ Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
    -E	<int>   read end length for adapter identify [100]
    -k	<int>   kmer size for adapter assembly [19]
    -y	<int>   min assembly adapter length [30]
-   -m	<int>   min match length between read and adapter [4]
+   -m	<int>   min match length between read end and adapter [4]
    -M	<int>   min match length between read middle and adapter [35]
    -s  <float>  min similarity between read end and adapter [0.75]
    -S  <float>  min similarity between read middle and adapter [0.9]
+   -D           split reads with middle adapter instead of discard
  Other options:
    -t           number of threads [3]
    -h           show help [v1.08]
