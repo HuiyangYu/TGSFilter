@@ -791,7 +791,7 @@ int Get_filter_parameter(Para_A24 *P2In){
 	int seqNum=0;
 	int maxSeq=(P2In->ReadNumber);
 	
-	int qtNum=5000;
+	int qtNum=10000;
 	int minQ=50000;
 	int maxQ=0;
 	uint64_t sumQ = 0;
@@ -1097,7 +1097,7 @@ int GetEditDistance(Para_A24 *P2In, string &query, string &target, std::vector<s
 					float sim2 = static_cast<float>(mlen) / length;
 					if (sim1 >= endSim || sim2 >= endSim){
 						//cout <<tLen<<" "<<length<<" 5p "<<dist<<" "<<mlen<<" "<<ts<<" "<<te<<endl;
-						adapterRegions.push_back({ts, te});
+						adapterRegions.push_back({0, te});
 					}
 				}
 			}
@@ -1124,7 +1124,7 @@ int GetEditDistance(Para_A24 *P2In, string &query, string &target, std::vector<s
 					float sim2 = static_cast<float>(mlen) / length;
 					if (sim1 >= endSim || sim2 >= endSim){
 						//cout <<tLen<<" "<<length<<" 3p "<<dist<<" "<<mlen<<" "<<ts<<" "<<te<<endl;
-						adapterRegions.push_back({ts, te});
+						adapterRegions.push_back({ts, tLen});
 					}
 				}
 			}
@@ -1227,7 +1227,7 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 		DropInfo[0]++;
 		DropInfo[1]+=seq_len;
 
-		if ((totalCrop >= seq_len) || (seq_len != qual_len)){
+		if (seq_len < (P2In->MinLength + totalCrop) || (seq_len != qual_len)){
 			DropInfo[4]++;
 			DropInfo[5]+=seq_len;
 			continue;
@@ -1236,14 +1236,6 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 		string raw_seq = SEQ[i].substr(headCrop, seq_len - totalCrop);
 		string raw_qual = QUAL[i].substr(headCrop, qual_len - totalCrop);
 		int raw_len = raw_seq.length();
-
-		/*
-		if (raw_len < (P2In->MinLength) || raw_len >(P2In->MaxLength)){
-			DropInfo[4]++;
-			DropInfo[5]+=seq_len;
-			continue;
-		}
-		*/
 
 		if (totalCrop>0){
 			DropInfo[6]++;
@@ -1316,7 +1308,7 @@ void Filter_fasta_reads_adapter(Para_A24 * P2In,string &OUT_DATA,
 		DropInfo[0]++;
 		DropInfo[1]+=seq_len;
 
-        if (totalCrop >= seq_len){
+        if (seq_len < (P2In->MinLength + totalCrop)){
 			DropInfo[4]++;
 			DropInfo[5]+=seq_len;
             continue;
@@ -1324,14 +1316,6 @@ void Filter_fasta_reads_adapter(Para_A24 * P2In,string &OUT_DATA,
 
         string raw_seq = SEQ[i].substr(headCrop, seq_len - totalCrop);
         int raw_len = raw_seq.length();
-
-		/*
-        if (raw_len < (P2In->MinLength) || raw_len >(P2In->MaxLength)){
-			DropInfo[4]++;
-			DropInfo[5]+=seq_len;
-            continue;
-        }
-		*/
 
 		if (totalCrop>0){
 			DropInfo[6]++;
