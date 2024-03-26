@@ -97,7 +97,7 @@ INFO: min mean base quality was set to: 7
 ```
 ## 4. FAQ
 ### 4.1 How to set min mean base quality (-q)?
-TGSFilter calculates the average quality value (meanQ) of the first 10,000 reads that length >= 5000 bp. If meanQ is greater than or equal to 25, then -q is set to 20; otherwise, it is set to 10.<br>
+TGSFilter calculates the average quality value (meanQ) of the first 10,000 reads with a length greater than or equal to 5000 bp. If meanQ is greater than or equal to 25, then -q is set to 20; otherwise, it is set to 10.<br>
 
 The parameter '-q 20' is usually used to filter HiFi reads, while '-q 10' is typically used to filter ONT reads.<br>
 
