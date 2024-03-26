@@ -28,20 +28,16 @@ using namespace std;
 
 int  TGSFilter_usage() {
 	cout <<""
-		"Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz\n"
+		"Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz\n"
 		" Input/Output options:\n"
 		"   -i	<str>   input of fasta/q file\n"
 		"   -o	<str>   output of fasta/q file\n"
 		" Basic filter options:\n"
-		"   -l	<int>   min length of read to out [1000]\n"
+		"   -l	<int>   min length of read to out [5000]\n"
 		"   -L	<int>   max length of read to out\n"
 		"   -q	<int>   min mean base quality [auto]\n"
-		"   -n	<int>   read number for base content check [200000]\n"
-		"   -e	<int>   read end length for base content check [100]\n"
-		"   -5	<int>   trim bases from the front (5') of the read [auto]\n"
-		"   -3	<int>   trim bases from the tail (3') of the read [auto]\n"
-		//"   -x	<int>   min length to detect polyX in the read tail [10]\n"
-		//"   -d          disable polyA trimming \n"
+		"   -5	<int>   trim bases from the 5' end of the read [150]\n"
+		"   -3	<int>   trim bases from the 3' end of the read [150]\n"
 		" Adapter filter options:\n"
 		"   -a	<str>   adapter sequence file \n"
 		"   -A           disable reads filter, only for adapter identify\n"
@@ -49,10 +45,11 @@ int  TGSFilter_usage() {
 		"   -E	<int>   read end length for adapter identify [100]\n"
 		"   -k	<int>   kmer size for adapter assembly [19]\n"
 		"   -y	<int>   min assembly adapter length [30]\n"
-		"   -m	<int>   min match length between read and adapter [4]\n"
+		"   -m	<int>   min match length between read end and adapter [4]\n"
 		"   -M	<int>   min match length between read middle and adapter [35]\n"
 		"   -s  <float>  min similarity between read end and adapter [0.75]\n"
 		"   -S  <float>  min similarity between read middle and adapter [0.9]\n"
+		"   -D           split reads with middle adapter instead of discard\n"
 		" Other options:\n"
 		"   -t           number of threads [3]\n"
 		"   -h           show help [v1.08]\n"
@@ -72,25 +69,19 @@ class Para_A24 {
 		int MinLength;
 		uint64_t MaxLength;
 		int AverQ;
-		int Window;
-		int BCNum;
-		int BCLen;
 		int HeadCrop;
 		int TailCrop;
-		int PolyX;
-		bool PolyA;
-		
 		//
 		string AdapterFile;
 		int ReadNumber;
 		int EndLen;
 		int Kmer;
 		int AdapterLen;
-		int MatchLen;
-		int MidLen;
-		//float Similarity;
+		int EndMatchLen;
+		int MidMatchLen;
 		float EndSim;
 		float MidSim;
+		bool discard;
 		//
 		int Infq;
 		int Outfq;
@@ -99,32 +90,26 @@ class Para_A24 {
 		int ReadLength;
 
 		Para_A24() {
-			//
 			InFile="";
 			OutFile="";
-			//
-			MinLength=1000;
+			
+			MinLength=5000;
 			MaxLength=UINT64_MAX;
 			AverQ=-1;
-			Window=50;
-			BCNum=200000;
-			BCLen=100;
-			HeadCrop=-1;
-			TailCrop=-1;
-			PolyX=10;
-			PolyA=false;
+			HeadCrop=150;
+			TailCrop=150;
 			
-			//
 			AdapterFile="";
 			ReadNumber=200000;
 			EndLen=100;
 			Kmer=19;
 			AdapterLen=30;
-			MatchLen=4;
-			MidLen=35;
+			EndMatchLen=4;
+			MidMatchLen=35;
 			EndSim=0.75;
 			MidSim=0.9;
-			//
+			discard=true;
+			
 			Infq=1;
 			Outfq=1;
 			OUTGZ=false;
@@ -178,8 +163,8 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
 			P2In->MinLength=atoi(argv[i]);
-			if (P2In->MinLength<1){
-				P2In->MinLength=1;
+			if (P2In->MinLength<100){
+				P2In->MinLength=100;
 			}
 		}
 		else if (flag == "L") {
@@ -192,21 +177,6 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			i++;
 			P2In->AverQ=atoi(argv[i]);
 		}
-		else if (flag == "w"){
-			if(i + 1 == argc) {LogLackArg(flag); return 1;}
-			i++;
-			P2In->Window=atoi(argv[i]);
-		}
-		else if (flag == "n"){
-			if(i + 1 == argc) {LogLackArg(flag); return 1;}
-			i++;
-			P2In->BCNum=atoi(argv[i]);
-		}
-		else if (flag == "e"){
-			if(i + 1 == argc) {LogLackArg(flag); return 1;}
-			i++;
-			P2In->BCLen=atoi(argv[i]);
-		}
 		else if (flag == "5") {
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
@@ -216,14 +186,6 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
 			P2In->TailCrop=atoi(argv[i]);
-		}
-		else if (flag == "x"){
-			if(i + 1 == argc) {LogLackArg(flag); return 1;}
-			i++;
-			P2In->PolyX=atoi(argv[i]);
-		}
-		else if (flag == "d"){
-			P2In->PolyX=true;
 		}
 		
 		//Adapter filter options
@@ -258,12 +220,12 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 		else if (flag == "m"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
-			P2In->MatchLen=atoi(argv[i]);
+			P2In->EndMatchLen=atoi(argv[i]);
 		}
 		else if (flag == "M"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
-			P2In->MidLen=atoi(argv[i]);
+			P2In->MidMatchLen=atoi(argv[i]);
 		}
 		else if (flag == "s"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
@@ -282,6 +244,9 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 				P2In->MidSim=0.85;
 				cout << "Warning: re set -S to : "<<P2In->MidSim<<endl;
 			}
+		}
+		else if (flag == "D"){
+			P2In->discard=false;
 		}
 
 		//Other options
@@ -824,12 +789,8 @@ int Get_filter_parameter(Para_A24 *P2In){
   	seq = kseq_init(fp);
 
 	int seqNum=0;
-	int BCNum=P2In->BCNum;
-	int ADNum=(P2In->ReadNumber);
-	int maxSeq=BCNum;
-	if (maxSeq<ADNum){
-		maxSeq=ADNum;
-	}
+	int maxSeq=(P2In->ReadNumber);
+	
 	int qtNum=5000;
 	int minQ=50000;
 	int maxQ=0;
@@ -839,19 +800,13 @@ int Get_filter_parameter(Para_A24 *P2In){
 	std::map<std::string, std::string> headSeq;
 	std::map<std::string, std::string> tailSeq;
 
-	int BCLen=P2In->BCLen;
-	std::vector<int> headA(BCLen, 0);
-	std::vector<int> headT(BCLen, 0);
-	std::vector<int> tailA(BCLen, 0);
-	std::vector<int> tailT(BCLen, 0);
-
 	while((kseq_read(seq)) >= 0){
 		if (seqNum>=maxSeq){
 			break;
 		}
 
 		uint64_t length=seq->seq.l;
-		if (length<500){
+		if (length<5000){
 			continue;
 		}
 		seqNum++;
@@ -874,86 +829,15 @@ int Get_filter_parameter(Para_A24 *P2In){
 		string name=seq->name.s;
 		string sequence=seq->seq.s;
 
-		string head_seq=sequence.substr(0, P2In->BCLen);
-		string tail_seq=sequence.substr(length-(P2In->BCLen));
-		if (seqNum<BCNum){
-			for (int x=0; x<P2In->BCLen; x++){
-				if (head_seq[x]=='A'){
-					headA[x]++;
-				}else if(head_seq[x]=='T'){
-					headT[x]++;
-				}
-
-				if (tail_seq[x]=='A'){
-					tailA[x]++;
-				}else if(tail_seq[x]=='T'){
-					tailT[x]++;
-				}
-
-			}
-		}
-
-		if (seqNum<ADNum){
-			string head_ADSeq;
-			string tail_ADSeq;
-			if (P2In->BCLen!=P2In->EndLen){
-				head_ADSeq=sequence.substr(0, P2In->EndLen);
-				tail_ADSeq=sequence.substr(length-(P2In->EndLen));
-			}else{
-				head_ADSeq=head_seq;
-				tail_ADSeq=tail_seq;
-			}
-			headSeq[name] = head_ADSeq;
-			tailSeq[name] = tail_ADSeq;
-		}
+		string head_seq=sequence.substr(0, P2In->EndLen);
+		string tail_seq=sequence.substr(length-(P2In->EndLen));
+	
+		headSeq[name] = head_seq;
+		tailSeq[name] = tail_seq;
 	}
 
 	kseq_destroy(seq);
   	gzclose(fp);
-
-	//base content
-	std::vector<int> headBC;
-	std::vector<int> tailBC;
-	int maxBC=(P2In->ReadNumber)/100;
-	for (int i = 0; i < BCLen; ++i) {
-		if (abs(headA[i]-headT[i])>=maxBC){
-			headBC.push_back(i+1);
-		}
-
-		if (abs(tailA[i]-tailT[i])>=maxBC){
-			tailBC.insert(tailBC.begin(), BCLen-i);
-		}
-    }
-	int headDrop=0;
-	 if (!headBC.empty()){
-		if(headBC.front()<=5){
-			headDrop=headBC.front();
-		}
-		for (int x=0; x<headBC.size(); ++x){
-			if ((headBC[x]-headDrop)<=5){
-				headDrop=headBC[x];
-			}
-		}
-	}
-
-	int tailDrop=0;
-	if (!tailBC.empty()){
-		if(tailBC.front()<=5){
-			tailDrop=tailBC.front();
-		}
-		for (int x=0; x<tailBC.size(); ++x){
-			if ((tailBC[x]-tailDrop)<=5){
-				tailDrop=tailBC[x];
-			}
-		}
-	}
-
-	if ((P2In->HeadCrop)<0){
-		P2In->HeadCrop=headDrop;
-	}
-	if ((P2In->TailCrop)<0){
-		P2In->TailCrop=tailDrop;
-	}
 
 	//mean phred quality
 	int qType=0;
@@ -1123,13 +1007,15 @@ int Get_filter_parameter(Para_A24 *P2In){
 	//
 	
 	if (!(P2In->ONLYAD)){
-		cout << "INFO: trim front length: "<<P2In->HeadCrop<<endl;
-		cout << "INFO: trim tail length: "<<P2In->TailCrop<<endl;
+		cout << "INFO: trim 5' end length: "<<P2In->HeadCrop<<endl;
+		cout << "INFO: trim 3' end length: "<<P2In->TailCrop<<endl;
 		if ((P2In->Infq)==1){
 			cout<<"INFO: min mean base quality was set to: "<<(P2In->AverQ)<<endl;
+			P2In->AverQ=(P2In->AverQ)+qType;
 		}
+		cout << "INFO: min output reads length: "<<P2In->MinLength<<endl;
 	}
-	P2In->AverQ=(P2In->AverQ)+qType;
+	
 
 	return 0;
 }
@@ -1146,136 +1032,172 @@ double CalcAvgQuality(const string &qual) {
 	return  (sumQ) / n;
 }
 
-void GetEditDistance(Para_A24 *P2In, string &query, string &target, std::vector<std::vector<int>> &adapterRegions){
-	int EndLen=P2In->EndLen;
-
+int GetEditDistance(Para_A24 *P2In, string &query, string &target, std::vector<std::vector<int>> &adapterRegions){
+	
+	int midNum=0;
 	float endSim=P2In->EndSim;
 	float midSim=P2In->MidSim;
 	int qLen=query.length();
 	int tLen=target.length();
 
-	int endK=int((1-endSim)*qLen)+1;
+	int end5Len=(P2In->EndLen) - (P2In->HeadCrop);
+	int end3Len=(P2In->EndLen) - (P2In->TailCrop);
+
+	int maxK=int((1-midSim)*qLen)+1;
+
 	if (asseFlag){
-		endK=qLen-(P2In->MatchLen)+1;
+		maxK=qLen-(P2In->MidMatchLen)+1;
 	}
 
-	int EndMatch=int(((P2In->MidLen)*endSim)/midSim);
-
-	//int midK=int((1-midSim)*qLen)+1;
+	//check middle adapter
 	EdlibAlignResult result = edlibAlign(query.c_str(), qLen, target.c_str(), tLen, 
-                    edlibNewAlignConfig(endK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
+                    edlibNewAlignConfig(maxK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
 	if (result.status == EDLIB_STATUS_OK){
 		int dist=result.editDistance;
 		int numAln=result.numLocations;
 		int length=result.alignmentLength;
 		int mlen=length - dist;
-		for (int i=0; i<numAln; i++){
-			int ts=result.startLocations[i];
-			int te=result.endLocations[i]+1;
-			float sim = static_cast<float>(mlen) / (te-ts);
-			if (ts>=EndLen && (tLen-te)>=EndLen){
-				if (sim >= midSim && mlen >= (P2In->MidLen)){
-					adapterRegions.push_back({ts, te});
-				}
-			} else {
-				if (sim >= endSim && mlen >= EndMatch){
+		if (mlen >= (P2In->MidMatchLen)){
+			for (int i=0; i<numAln; i++){
+				int ts=result.startLocations[i];
+				int te=result.endLocations[i]+1;
+				float sim = static_cast<float>(mlen) / length;
+				if (sim >= midSim && ts>=end5Len && (tLen-te)>=end3Len){
+					//cout <<tLen<<" "<<length<<" mid "<<dist<<" "<<mlen<<" "<<ts<<" "<<te<<endl;
+					midNum++;
 					adapterRegions.push_back({ts, te});
 				}
 			}
 		}
 	}
 	edlibFreeAlignResult(result);
+
 	//check 5' and 3' end
-	int tshLen=int(qLen/endSim);
-	int maxK=qLen-(P2In->MatchLen)+1;
+	int checkLen= (P2In->EndLen) + qLen;
+	if (checkLen > tLen){
+		checkLen = tLen;
+	}
+	int ts5Len=checkLen - (P2In->HeadCrop);
+	int ts3Len=checkLen - (P2In->TailCrop);
+
 	//5' end
-	string tsh=target.substr(0,tshLen);
-	EdlibAlignResult result_tsh = edlibAlign(query.c_str(), qLen, tsh.c_str(), tshLen, 
-				edlibNewAlignConfig(maxK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
-	if (result_tsh.status == EDLIB_STATUS_OK){
-		int dist=result_tsh.editDistance;
-		int length=result_tsh.alignmentLength;
-		int numAln=result_tsh.numLocations;
-		int mlen=length - dist;
-		for (int i=0; i<numAln; i++){
-			int ts=result_tsh.startLocations[i];
-			int te=result_tsh.endLocations[i]+1;
-			float sim1 = static_cast<float>(mlen) / te;
-			float sim2 = static_cast<float>(mlen) / (te-ts);
-			//cout <<tLen<<" "<<length<<" 5p "<<dist<<" "<<mlen<<" "<<ts<<" "<<te<<endl;
-			if (sim1 >= endSim && mlen >= (P2In->MatchLen)){
-				adapterRegions.push_back({ts, te});
-			}else if(sim2 >= endSim && mlen >= EndMatch){
-				adapterRegions.push_back({ts, te});
+	if (ts5Len >= 5){
+		maxK = ts5Len -5 + 1;
+		string ts5 = target.substr(0, ts5Len);
+		EdlibAlignResult result_ts5 = edlibAlign(query.c_str(), qLen, ts5.c_str(), ts5Len, 
+					edlibNewAlignConfig(maxK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
+		if (result_ts5.status == EDLIB_STATUS_OK){
+			int dist=result_ts5.editDistance;
+			int length=result_ts5.alignmentLength;
+			int numAln=result_ts5.numLocations;
+			int mlen=length - dist;
+			if (mlen >= (P2In->EndMatchLen)){
+				for (int i=0; i<numAln; i++){
+					int ts=result_ts5.startLocations[i];
+					int te=result_ts5.endLocations[i]+1;
+					float sim1 = static_cast<float>(mlen) / te;
+					float sim2 = static_cast<float>(mlen) / length;
+					if (sim1 >= endSim || sim2 >= endSim){
+						//cout <<tLen<<" "<<length<<" 5p "<<dist<<" "<<mlen<<" "<<ts<<" "<<te<<endl;
+						adapterRegions.push_back({ts, te});
+					}
+				}
 			}
 		}
+		edlibFreeAlignResult(result_ts5);
 	}
-	edlibFreeAlignResult(result_tsh);
+
 	//3' end
-	string tst=target.substr(tLen-tshLen);
-	EdlibAlignResult result_tst = edlibAlign(query.c_str(), qLen, tst.c_str(), tshLen, 
-				edlibNewAlignConfig(maxK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
-	if (result_tst.status == EDLIB_STATUS_OK){
-		int dist=result_tst.editDistance;
-		int length=result_tst.alignmentLength;
-		int numAln=result_tst.numLocations;
-		int mlen=length - dist;
-		for (int i=0; i<numAln; i++){
-			int ts=result_tst.startLocations[i]+tLen-tshLen;
-			int te=result_tst.endLocations[i]+1+tLen-tshLen;
-			float sim1 = static_cast<float>(mlen) / (tLen-ts);
-			float sim2 = static_cast<float>(mlen) / (te-ts);
-			//cout <<tLen<<" "<<length<<" 3p "<<dist<<" "<<mlen<<" "<<ts<<" "<<te<<endl;
-			if (sim1 >= endSim && mlen >= (P2In->MatchLen)){
-				adapterRegions.push_back({ts, te});
-			}else if(sim2 >= endSim && mlen >= EndMatch){
-				adapterRegions.push_back({ts, te});
+	if (ts3Len >= 5){
+		maxK = ts3Len -5 + 1;
+		string ts3=target.substr(tLen-ts3Len);
+		EdlibAlignResult result_ts3 = edlibAlign(query.c_str(), qLen, ts3.c_str(), ts3Len, 
+					edlibNewAlignConfig(maxK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
+		if (result_ts3.status == EDLIB_STATUS_OK){
+			int dist=result_ts3.editDistance;
+			int length=result_ts3.alignmentLength;
+			int numAln=result_ts3.numLocations;
+			int mlen=length - dist;
+			for (int i=0; i<numAln; i++){
+				int ts=result_ts3.startLocations[i] + tLen - ts3Len;
+				int te=result_ts3.endLocations[i]+1 + tLen - ts3Len;
+				if (mlen >= (P2In->EndMatchLen)){
+					float sim1 = static_cast<float>(mlen) / (tLen-ts);
+					float sim2 = static_cast<float>(mlen) / length;
+					if (sim1 >= endSim || sim2 >= endSim){
+						//cout <<tLen<<" "<<length<<" 3p "<<dist<<" "<<mlen<<" "<<ts<<" "<<te<<endl;
+						adapterRegions.push_back({ts, te});
+					}
+				}
 			}
 		}
+		edlibFreeAlignResult(result_ts3);
 	}
-	edlibFreeAlignResult(result_tst);
+	return midNum;
 }
 
 void adapterMap(Para_A24 * P2In, string &raw_seq, int &raw_len,
 				std::vector<std::vector<int>> &keepRegions,
-				std::array<uint64_t, 14>& DropInfo){
+				std::array<uint64_t, 16>& DropInfo){
 
 	std::vector<std::vector<int>> adapterRegions;
+	int mid_for;
+	int mid_rev;
 	//
     for (const auto& pair : adapters) {
         string qsFor=pair.second.first;
         string qsRev=pair.second.second;
-		GetEditDistance(P2In, qsFor, raw_seq, adapterRegions);
-		GetEditDistance(P2In, qsRev, raw_seq, adapterRegions);
+		mid_for = GetEditDistance(P2In, qsFor, raw_seq, adapterRegions);
+		mid_rev = GetEditDistance(P2In, qsRev, raw_seq, adapterRegions);
     }
 
-	if (adapterRegions.size() >= 2) {
-		std::sort(adapterRegions.begin(), adapterRegions.end(), [](const std::vector<int>& a, const std::vector<int>& b) {
-			if (a[0] == b[0]) {
-				return a[1] < b[1];
-			}
-			return a[0] < b[0];
-		});
+	int midNum=0;
+	if (mid_for > 0 || mid_rev > 0){
+		midNum=1;
 	}
+	DropInfo[14]+=midNum;
 
-	std::vector<std::vector<int>> mergedRegions;
-	for (const auto& region : adapterRegions) {
-		if (!mergedRegions.empty() && (mergedRegions.back()[1] >= region[0])) {
-			mergedRegions.back()[1] = std::max(mergedRegions.back()[1], region[1]);
-		} else {
-			mergedRegions.push_back(region);
+	if (midNum>0 && P2In->discard){
+		DropInfo[15]+=raw_len;
+	} else {
+		if (adapterRegions.size() >= 2) {
+			std::sort(adapterRegions.begin(), adapterRegions.end(), [](const std::vector<int>& a, const std::vector<int>& b) {
+				if (a[0] == b[0]) {
+					return a[1] < b[1];
+				}
+				return a[0] < b[0];
+			});
 		}
-	}
-	//
 
-	int keep_len = 0;
-	int currentStart = 0;
-	if (mergedRegions.size()>=1){
-		DropInfo[8]++;
-		for (const auto& region : mergedRegions) {
-			DropInfo[9]+=(region[1]-region[0]);
-			if (region[0] > currentStart) {
-				keep_len=region[0] - currentStart;
+		std::vector<std::vector<int>> mergedRegions;
+		for (const auto& region : adapterRegions) {
+			if (!mergedRegions.empty() && (mergedRegions.back()[1] >= region[0])) {
+				mergedRegions.back()[1] = std::max(mergedRegions.back()[1], region[1]);
+			} else {
+				mergedRegions.push_back(region);
+			}
+		}
+
+		int keep_len = 0;
+		int currentStart = 0;
+		if (mergedRegions.size()>=1){
+			DropInfo[8]++;
+			for (const auto& region : mergedRegions) {
+				DropInfo[9]+=(region[1]-region[0]);
+				if (region[0] > currentStart) {
+					keep_len=region[0] - currentStart;
+					if (keep_len >= (P2In->MinLength)){
+						keepRegions.push_back({currentStart, keep_len});
+					}else{
+						DropInfo[12]++;
+						DropInfo[13]+=keep_len;
+					}
+				}
+				currentStart = region[1];
+			}
+
+			if (currentStart < raw_len) {
+				keep_len=static_cast<int>(raw_len) - currentStart;
 				if (keep_len >= (P2In->MinLength)){
 					keepRegions.push_back({currentStart, keep_len});
 				}else{
@@ -1283,26 +1205,15 @@ void adapterMap(Para_A24 * P2In, string &raw_seq, int &raw_len,
 					DropInfo[13]+=keep_len;
 				}
 			}
-			currentStart = region[1];
+		}else{
+			keepRegions.push_back({currentStart, raw_len});
 		}
-
-		if (currentStart < raw_len) {
-			keep_len=static_cast<int>(raw_len) - currentStart;
-			if (keep_len >= (P2In->MinLength)){
-				keepRegions.push_back({currentStart, keep_len});
-			}else{
-				DropInfo[12]++;
-				DropInfo[13]+=keep_len;
-			}
-		}
-	}else{
-		keepRegions.push_back({currentStart, raw_len});
 	}
 }
 
 void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 						vector<string>& ID, vector <string> &SEQ, vector <string> &QUAL,
-						std::array<uint64_t, 14>& DropInfo){
+						std::array<uint64_t, 16>& DropInfo){
 
 	int headCrop = P2In->HeadCrop;
 	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
@@ -1318,7 +1229,7 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 			DropInfo[5]+=seq_len;
 			continue;
 		}
-
+		
 		string raw_seq = SEQ[i].substr(headCrop, seq_len - totalCrop);
 		string raw_qual = QUAL[i].substr(headCrop, qual_len - totalCrop);
 		int raw_len = raw_seq.length();
@@ -1328,7 +1239,7 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 			DropInfo[5]+=seq_len;
 			continue;
 		}
-
+		
 		if (totalCrop>0){
 			DropInfo[6]++;
 			DropInfo[7]+=totalCrop;
@@ -1391,7 +1302,7 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 
 void Filter_fasta_reads_adapter(Para_A24 * P2In,string &OUT_DATA, 
 						vector<string>& ID, vector <string> & SEQ,
-						std::array<uint64_t, 14>& DropInfo) {
+						std::array<uint64_t, 16>& DropInfo) {
 	int headCrop = P2In->HeadCrop;
 	int totalCrop = (P2In->HeadCrop) + (P2In->TailCrop);
 	
@@ -1447,7 +1358,7 @@ void Filter_fasta_reads_adapter(Para_A24 * P2In,string &OUT_DATA,
 
 void Filter_reads_adapter(Para_A24 * P2In, string &OUT_DATA, 
 				vector<string> &ID, vector <string> &SEQ, vector <string> &QUAL,
-				std::array<uint64_t, 14>& DropInfo){
+				std::array<uint64_t, 16>& DropInfo){
 	OUT_DATA="";
 	if(QUAL[0].length()<=2){
 		Filter_fasta_reads_adapter(P2In, OUT_DATA, ID, SEQ, DropInfo);
@@ -1458,7 +1369,7 @@ void Filter_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 
 void Filter_reads_adapter_gz(Para_A24 *P2In, vector<string> &ID, vector <string> &SEQ, 
 					vector <string> &QUAL,
-					std::array<uint64_t, 14>& DropInfo,
+					std::array<uint64_t, 16>& DropInfo,
 					uint8_t ** ComData, size_t & ComSize,
 					size_t &ComBuff, int &tid){
 	string OUT_DATA="";
@@ -1489,7 +1400,7 @@ int Run_seq_filter_adapter(Para_A24 * P2In) {
 	std::vector<std::vector<std::string>> SEQ(n_thread);
 	std::vector<std::vector<std::string>> QUAL(n_thread);
 
-	std::vector<std::array<uint64_t, 14>> DropInfo(n_thread, std::array<uint64_t, 14>{});
+	std::vector<std::array<uint64_t, 16>> DropInfo(n_thread, std::array<uint64_t, 16>{});
 	//raw_reads raw_bases
 	//clean_reads clean_bases
 	//shortDrop_reads shortDrop_bases
@@ -1497,6 +1408,7 @@ int Run_seq_filter_adapter(Para_A24 * P2In) {
 	//adapterDrop_reads adapterDrop_bases
 	//LQDrop_reads LQDrop_bases
 	//OutDrop_reads OutDrop_bases
+	//Middle_adapter drop_bases
 
 	std::vector<std::thread> threads;
 
@@ -1680,6 +1592,8 @@ int Run_seq_filter_adapter(Para_A24 * P2In) {
 	uint64_t LQDrop_bases=0;
 	uint64_t outDrop_reads=0;
 	uint64_t outDrop_bases=0;
+	uint64_t middle_reads=0;
+	uint64_t middle_bases=0;
 
 	for (int i = 0; i < n_thread; i++) {
 		raw_reads+=DropInfo[i][0];
@@ -1696,13 +1610,16 @@ int Run_seq_filter_adapter(Para_A24 * P2In) {
 		LQDrop_bases+=DropInfo[i][11];
 		outDrop_reads+=DropInfo[i][12];
 		outDrop_bases+=DropInfo[i][13];
+		middle_reads+=DropInfo[i][14];
+		middle_bases+=DropInfo[i][15];
 	}
 
 	cout << raw_reads<<" reads with "<<raw_bases<<" bases were input"<<endl;
 	cout << shortDrop_reads <<" reads with "<<shortDrop_bases<<" bases were dropped before filter"<<endl;
 	cout << endDrop_reads <<" reads were trimmed "<<endDrop_bases<<" bases in end"<<endl;
-	cout << adapterDrop_reads <<" reads were trimmed " <<adapterDrop_bases<<" bases with adapter"<<endl;
 	cout << LQDrop_reads <<" reads with "<<LQDrop_bases<<" bases were dropped with low quality"<<endl;
+	cout << middle_reads <<" reads were discard with " <<middle_bases<<" bases with middle adapter"<<endl;
+	cout << adapterDrop_reads <<" reads were trimmed " <<adapterDrop_bases<<" bases with adapter"<<endl;
 	cout << outDrop_reads<<" reads with "<<outDrop_bases<<" bases were dropped before output"<<endl;
 	cout << clean_reads <<" reads with "<<clean_bases<<" bases were output"<<endl;
 
