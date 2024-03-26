@@ -77,6 +77,7 @@ INFO: 10841299 reads with a total of 199236580163 bases were output
 tgsfilter -i ont.raw.fq.gz -o ont.clean.fq.gz -t 10
 ```
 The log information printed on the screen will contain the following content:
+```
 INFO: searching 5' adapter...
 INFO: searching 3' adapter...
 INFO: 5' adapter: TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC
