@@ -52,7 +52,7 @@ Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
 ```
 tgsfilter -i hifi.raw.fq.gz -o hifi.clean.fq.gz -t 10
 ```
-Two output files will be generated, namely 'hifi.clean.fq.gz'. <br>
+The output files will be generated, namely 'hifi.clean.fq.gz'. <br>
 The log information printed on the screen will contain the following content:
 ```
 INFO: searching 5' adapter...
@@ -61,16 +61,18 @@ INFO: 5' adapter: ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT
 INFO: 3' adapter: ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT
 INFO: mean depth of 5' adapter: 18.4444
 INFO: mean depth of 3' adapter: 14.4889
-INFO: trim front length: 12
-INFO: trim tail length: 11
+INFO: trim 5' end length: 150
+INFO: trim 3' end length: 150
 INFO: min mean base quality was set to: 20
+INFO: min output reads length: 5000
 10841385 reads with 199243618211 bases were input
-90 reads with 59119 bases were dropped before filter
-10841295 reads were trimmed 249349785 bases in end
-990743 reads were trimmed 32623438 bases with adapter
+164234 reads with 666540644 bases were dropped before filter
+10677151 reads were trimmed 3203145300 bases in end
 0 reads with 0 bases were dropped with low quality
-329014 reads with 2551884 bases were dropped before output
-10841402 reads with 198959033985 bases were output
+3 reads were discard with 106304 bases with middle adapter
+0 reads were trimmed 0 bases with adapter
+0 reads with 0 bases were dropped before output
+10677148 reads with 195373825963 bases were output
 ```
 ### 3.2 Filter ONT reads
 ```
