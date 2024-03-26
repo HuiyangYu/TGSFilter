@@ -124,8 +124,6 @@ TGSFilter determines the output file format by recognizing the suffix of the out
 If the suffix of the output file name is '.fasta.gz' or '.fa.gz', a compressed fasta format file will be output. <br>
 
 If the suffix of the output file name is '.fq' or '.fastq', an uncompressed fastq format file will be output.<br>
-### 4.5 Why is the number of output reads greater than the number of input reads? 
-In third-generation sequencing, adapters may be present in the middle of reads. When an adapter is detected in this region, we trim the read at that region, potentially resulting in an increased number of output reads compared to the input.
 
 ## 5. License
 -------
