@@ -1623,14 +1623,14 @@ int Run_seq_filter_adapter(Para_A24 * P2In) {
 		middle_bases+=DropInfo[i][15];
 	}
 
-	cout << raw_reads<<" reads with "<<raw_bases<<" bases were input"<<endl;
-	cout << shortDrop_reads <<" reads were discard with "<<shortDrop_bases<<" bases before filter"<<endl;
-	cout << endDrop_reads <<" reads were trimmed "<<endDrop_bases<<" bases in end"<<endl;
-	cout << LQDrop_reads <<" reads were discard with "<<LQDrop_bases<<" bases with low quality"<<endl;
-	cout << middle_reads <<" reads were discard with " <<middle_bases<<" bases with middle adapter"<<endl;
-	cout << adapterDrop_reads <<" reads were trimmed " <<adapterDrop_bases<<" bases with adapter"<<endl;
-	cout << outDrop_reads<<" reads were discard with "<<outDrop_bases<<" bases before output"<<endl;
-	cout << clean_reads <<" reads with "<<clean_bases<<" bases were output"<<endl;
+	cout << "INFO: "<< raw_reads<<" reads with a total of "<<raw_bases<<" bases were input."<<endl;
+	cout << "INFO: "<< shortDrop_reads <<" reads were discarded with "<<shortDrop_bases<<" bases before filtering."<<endl;
+	cout << "INFO: "<< endDrop_reads <<" reads were trimmed by "<<endDrop_bases<<" bases at the end."<<endl;
+	cout << "INFO: "<< LQDrop_reads <<" reads were discarded with "<<LQDrop_bases<<" bases due to low quality."<<endl;
+	cout << "INFO: "<< middle_reads <<" read was discarded with " <<middle_bases<<" bases due to a middle adapter."<<endl;
+	cout << "INFO: "<< adapterDrop_reads <<" reads were trimmed by " <<adapterDrop_bases<<" bases with an adapter."<<endl;
+	cout << "INFO: "<< outDrop_reads<<" reads were discarded with "<<outDrop_bases<<" bases before output."<<endl;
+	cout << "INFO: "<< clean_reads <<" reads with a total of "<<clean_bases<<" bases were output"<<endl;
 
 	return 0;
 }
