@@ -77,23 +77,24 @@ INFO: 10841299 reads with a total of 199236580163 bases were output
 tgsfilter -i ont.raw.fq.gz -o ont.clean.fq.gz -t 10
 ```
 The log information printed on the screen will contain the following content:
-```
 INFO: searching 5' adapter...
 INFO: searching 3' adapter...
 INFO: 5' adapter: TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC
 INFO: 3' adapter: 
-INFO: mean depth of 5' adapter: 4686.72
+INFO: mean depth of 5' adapter: 10721.6
 INFO: mean depth of 3' adapter: 0
-INFO: trim front length: 98
-INFO: trim tail length: 12
-INFO: min mean base quality was set to: 7
-5301056 reads with 166540954904 bases were input
-226266 reads with 199769142 bases were dropped before filter
-5074790 reads were trimmed 558226900 bases in end
-1053724 reads were trimmed 41307383 bases with adapter
-358766 reads with 10869031124 bases were dropped with low quality
-679963 reads with 17490611 bases were dropped before output
-4707984 reads with 154855129744 bases were output
+INFO: trim 5' end length: 0
+INFO: trim 3' end length: 0
+INFO: min mean base quality was set to: 10
+INFO: min output reads length: 1000
+INFO: 5301056 reads with a total of 166540954904 bases were input.
+INFO: 134711 reads were discarded with 103200391 bases before filtering.
+INFO: 0 reads were trimmed by 0 bases at the end.
+INFO: 644139 reads were discarded with 19209834250 bases due to low quality.
+INFO: 411 read was discarded with 11178458 bases due to a middle adapter.
+INFO: 663024 reads were trimmed by 50778375 bases with an adapter.
+INFO: 4636 reads were discarded with 4456634 bases before output.
+INFO: 4517159 reads with a total of 147161506796 bases were output
 ```
 ## 4. FAQ
 ### 4.1 How to set min mean base quality (-q)?
