@@ -59,18 +59,18 @@ INFO: 5' adapter: ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT
 INFO: 3' adapter: ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT
 INFO: mean depth of 5' adapter: 18.4444
 INFO: mean depth of 3' adapter: 14.4889
-INFO: trim 5' end length: 150
-INFO: trim 3' end length: 150
+INFO: trim 5' end length: 0
+INFO: trim 3' end length: 0
 INFO: min mean base quality was set to: 20
-INFO: min output reads length: 5000
-10841385 reads with 199243618211 bases were input
-164234 reads with 666540644 bases were dropped before filter
-10677151 reads were trimmed 3203145300 bases in end
-0 reads with 0 bases were dropped with low quality
-3 reads were discard with 106304 bases with middle adapter
-0 reads were trimmed 0 bases with adapter
-0 reads with 0 bases were dropped before output
-10677148 reads with 195373825963 bases were output
+INFO: min output reads length: 1000
+INFO: 10841385 reads with a total of 199243618211 bases were input.
+INFO: 83 reads were discarded with 52022 bases before filtering.
+INFO: 0 reads were trimmed by 0 bases at the end.
+INFO: 0 reads were discarded with 0 bases due to low quality.
+INFO: 3 read was discarded with 107204 bases due to a middle adapter.
+INFO: 209263 reads were trimmed by 6878822 bases with an adapter.
+INFO: 0 reads were discarded with 0 bases before output.
+INFO: 10841299 reads with a total of 199236580163 bases were output
 ```
 ### 3.2 Filter ONT reads
 ```
