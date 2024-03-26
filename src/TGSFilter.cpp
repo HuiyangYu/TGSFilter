@@ -33,11 +33,11 @@ int  TGSFilter_usage() {
 		"   -i	<str>   input of fasta/q file\n"
 		"   -o	<str>   output of fasta/q file\n"
 		" Basic filter options:\n"
-		"   -l	<int>   min length of read to out [5000]\n"
+		"   -l	<int>   min length of read to out [1000]\n"
 		"   -L	<int>   max length of read to out\n"
 		"   -q	<int>   min mean base quality [auto]\n"
-		"   -5	<int>   trim bases from the 5' end of the read [150]\n"
-		"   -3	<int>   trim bases from the 3' end of the read [150]\n"
+		"   -5	<int>   trim bases from the 5' end of the read [0]\n"
+		"   -3	<int>   trim bases from the 3' end of the read [0]\n"
 		" Adapter filter options:\n"
 		"   -a	<str>   adapter sequence file \n"
 		"   -A           disable reads filter, only for adapter identify\n"
@@ -93,11 +93,11 @@ class Para_A24 {
 			InFile="";
 			OutFile="";
 			
-			MinLength=5000;
+			MinLength=1000;
 			MaxLength=UINT64_MAX;
 			AverQ=-1;
-			HeadCrop=150;
-			TailCrop=150;
+			HeadCrop=0;
+			TailCrop=0;
 			
 			AdapterFile="";
 			ReadNumber=200000;
@@ -1186,7 +1186,7 @@ void adapterMap(Para_A24 * P2In, string &raw_seq, int &raw_len,
 				DropInfo[9]+=(region[1]-region[0]);
 				if (region[0] > currentStart) {
 					keep_len=region[0] - currentStart;
-					if (keep_len >= (P2In->MinLength)){
+					if (keep_len >= (P2In->MinLength) && keep_len <= (P2In->MaxLength)){
 						keepRegions.push_back({currentStart, keep_len});
 					}else{
 						DropInfo[12]++;
@@ -1198,7 +1198,7 @@ void adapterMap(Para_A24 * P2In, string &raw_seq, int &raw_len,
 
 			if (currentStart < raw_len) {
 				keep_len=static_cast<int>(raw_len) - currentStart;
-				if (keep_len >= (P2In->MinLength)){
+				if (keep_len >= (P2In->MinLength) && keep_len <= (P2In->MaxLength)){
 					keepRegions.push_back({currentStart, keep_len});
 				}else{
 					DropInfo[12]++;
@@ -1206,7 +1206,12 @@ void adapterMap(Para_A24 * P2In, string &raw_seq, int &raw_len,
 				}
 			}
 		}else{
-			keepRegions.push_back({currentStart, raw_len});
+			if (raw_len >= (P2In->MinLength) && raw_len <= (P2In->MaxLength)){
+				keepRegions.push_back({currentStart, raw_len});
+			}else{
+				DropInfo[12]++;
+				DropInfo[13]+=raw_len;
+			}
 		}
 	}
 }
@@ -1224,7 +1229,7 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 		DropInfo[0]++;
 		DropInfo[1]+=seq_len;
 
-		if ((totalCrop >= seq_len) || (seq_len != qual_len) || (seq_len >(P2In->MaxLength))){
+		if ((totalCrop >= seq_len) || (seq_len != qual_len)){
 			DropInfo[4]++;
 			DropInfo[5]+=seq_len;
 			continue;
@@ -1234,12 +1239,14 @@ void Filter_fastq_reads_adapter(Para_A24 * P2In, string &OUT_DATA,
 		string raw_qual = QUAL[i].substr(headCrop, qual_len - totalCrop);
 		int raw_len = raw_seq.length();
 
-		if (raw_len < (P2In->MinLength)){
+		/*
+		if (raw_len < (P2In->MinLength) || raw_len >(P2In->MaxLength)){
 			DropInfo[4]++;
 			DropInfo[5]+=seq_len;
 			continue;
 		}
-		
+		*/
+
 		if (totalCrop>0){
 			DropInfo[6]++;
 			DropInfo[7]+=totalCrop;
@@ -1311,7 +1318,7 @@ void Filter_fasta_reads_adapter(Para_A24 * P2In,string &OUT_DATA,
 		DropInfo[0]++;
 		DropInfo[1]+=seq_len;
 
-        if (totalCrop >= seq_len || seq_len >(P2In->MaxLength)){
+        if (totalCrop >= seq_len){
 			DropInfo[4]++;
 			DropInfo[5]+=seq_len;
             continue;
@@ -1320,11 +1327,13 @@ void Filter_fasta_reads_adapter(Para_A24 * P2In,string &OUT_DATA,
         string raw_seq = SEQ[i].substr(headCrop, seq_len - totalCrop);
         int raw_len = raw_seq.length();
 
-        if (raw_len < (P2In->MinLength)){
+		/*
+        if (raw_len < (P2In->MinLength) || raw_len >(P2In->MaxLength)){
 			DropInfo[4]++;
 			DropInfo[5]+=seq_len;
             continue;
         }
+		*/
 
 		if (totalCrop>0){
 			DropInfo[6]++;
@@ -1615,12 +1624,12 @@ int Run_seq_filter_adapter(Para_A24 * P2In) {
 	}
 
 	cout << raw_reads<<" reads with "<<raw_bases<<" bases were input"<<endl;
-	cout << shortDrop_reads <<" reads with "<<shortDrop_bases<<" bases were dropped before filter"<<endl;
+	cout << shortDrop_reads <<" reads were discard with "<<shortDrop_bases<<" bases before filter"<<endl;
 	cout << endDrop_reads <<" reads were trimmed "<<endDrop_bases<<" bases in end"<<endl;
-	cout << LQDrop_reads <<" reads with "<<LQDrop_bases<<" bases were dropped with low quality"<<endl;
+	cout << LQDrop_reads <<" reads were discard with "<<LQDrop_bases<<" bases with low quality"<<endl;
 	cout << middle_reads <<" reads were discard with " <<middle_bases<<" bases with middle adapter"<<endl;
 	cout << adapterDrop_reads <<" reads were trimmed " <<adapterDrop_bases<<" bases with adapter"<<endl;
-	cout << outDrop_reads<<" reads with "<<outDrop_bases<<" bases were dropped before output"<<endl;
+	cout << outDrop_reads<<" reads were discard with "<<outDrop_bases<<" bases before output"<<endl;
 	cout << clean_reads <<" reads with "<<clean_bases<<" bases were output"<<endl;
 
 	return 0;
