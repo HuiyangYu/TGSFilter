@@ -104,15 +104,15 @@ TGSFilter calculates the average quality value (meanQ) of the first 10,000 reads
 The parameter '-q 20' is usually used to filter HiFi reads, while '-q 10' is typically used to filter ONT reads.<br>
 
 ### 4.2 How does TGSFilter identify adapter sequences?
-TGSFilter employs three modes for identifying adapter sequences.<br>
+TGSFilter employs three steps for identifying adapter sequences.<br>
 
-(1) Users specify the adapter sequence through the '-a' parameter, which should be in fasta format. However, this parameter is not mandatory.<br>
+(1) Check whether users specify the adapter sequence through the '-a' parameter, which should be in fasta format. <br>
 
 (2) Extract sequences of 100bp from the 5' and 3' ends, respectively, and align them with the general adapter library. If the global alignment similarity is over 90%, the adapter is detected.<br>
 
 (3) Calculate the k-mer frequency of the extracted reads, filter out noisy k-mers, obtain candidate adapter sequences, and select the sequence with the highest k-mer depth as the adapter sequence.<br>
 
-These three modes are executed sequentially. <br>
+These three steps are executed sequentially. If users specify the adapter sequence file through the '-a' parameter, the following two steps will not be executed; otherwise, only the following two steps will be performed. <br>
 
 If you only want to identify adapters in your reads, you can add the '-A' parameter, which will instruct the program to only perform adapter search or assembly, taking less than 1 minute to complete.
 
