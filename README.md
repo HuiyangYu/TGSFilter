@@ -106,7 +106,7 @@ The parameter '-q 20' is usually used to filter HiFi reads, while '-q 10' is typ
 ### 4.2 How does TGSFilter identify adapter sequences?
 TGSFilter employs three modes for identifying adapter sequences.<br>
 
-(1) Users specify the adapter sequence through the '-a' parameter, which should be in fasta format.<br>
+(1) Users specify the adapter sequence through the '-a' parameter, which should be in fasta format. However, this parameter is not mandatory.<br>
 
 (2) Extract sequences of 100bp from the 5' and 3' ends, respectively, and align them with the general adapter library. If the global alignment similarity is over 90%, the adapter is detected.<br>
 
