@@ -2797,7 +2797,7 @@ int main (int argc, char *argv[ ]) {
 	string InPath=(P2In->InFile);
 	P2In->Infq = GetFileType(InPath);
 	string prefix=GetFilePreifx(InPath);
-	string htmlFileName=prefix + ".html"
+	string htmlFileName=prefix + ".html";
 
 	string OutPath;
 	if (!(P2In->OutFile).empty()) {
