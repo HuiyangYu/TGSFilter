@@ -11,9 +11,9 @@ all: $(BIN_DIR)/tgsfilter
 
 $(BIN_DIR)/tgsfilter: $(SRC_DIR)/TGSFilter.cpp | $(BIN_DIR)
 ifeq ($(OS),Darwin)
-	g++ --std=c++11 -g -O3 $< -lz -ldeflate -pthread -fPIE -I$(INCLUDE_DIR) -o $@
+	g++ --std=c++11 -g -O3 $< -lhts -lz -lisal -ldeflate -pthread -fPIE -I$(INCLUDE_DIR) -o $@
 else
-	g++ -L$(LIB_DIR) -Wl,-rpath=$(LIB_DIR) --std=c++11 -g -O3 $< -lz -ldeflate -pthread -fPIE -I$(INCLUDE_DIR) -o $@
+	g++ -L$(LIB_DIR) -Wl,-rpath=$(LIB_DIR) --std=c++11 -g -O3 $< -lhts -lz -lisal -ldeflate -pthread -fPIE -I$(INCLUDE_DIR) -o $@
 endif
 
 $(BIN_DIR):
