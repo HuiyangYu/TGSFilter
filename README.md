@@ -97,6 +97,8 @@ INFO: Quality control report was written to: hifi.clean.html
 ```
 tgsfilter -i ont.fq.gz -l 50000 -o ont.clean.fq.gz -t 16 -x ont
 ```
+Two output files will be generated, namely 'ont.clean.fq.gz' and 'ont.clean.html'.
+
 The log information printed on the screen will contain the following content:
 ```
 INFO: read type: NanoPore reads (ont).
