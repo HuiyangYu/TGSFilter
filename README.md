@@ -64,6 +64,7 @@ Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
 tgsfilter -i hifi.fq.gz -o hifi.clean.fq.gz -t 16 -x hifi
 ```
 Two output files will be generated, namely <b>'hifi.clean.fq.gz'</b> and <b>'[hifi.clean.html](http://htmlpreview.github.io/?https://github.com/HuiyangYu/TGSFilter/blob/main/html/hifi.clean.html)'</b>. <br>
+
 The log information printed on the screen will contain the following content:
 ```
 INFO: read type: PacBio highly accurate long reads (hifi).
@@ -97,6 +98,8 @@ INFO: Quality control report was written to: hifi.clean.html
 ```
 tgsfilter -i ont.fq.gz -l 50000 -o ont.clean.fq.gz -t 16 -x ont
 ```
+<b>Attention:</b> If the sequencing depth of your ONT reads is < 40X, setting the minimum length to 50 kb might be too stringent. You can set ```-l``` to 20,000 or 30,000 instead.<br>
+
 Two output files will be generated, namely <b>'ont.clean.fq.gz'</b> and <b>'[ont.clean.html](http://htmlpreview.github.io/?https://github.com/HuiyangYu/TGSFilter/blob/main/html/ont.clean.html)'</b>.
 
 The log information printed on the screen will contain the following content:
