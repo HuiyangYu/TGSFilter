@@ -63,7 +63,7 @@ Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
 ```
 tgsfilter -i hifi.fq.gz -o hifi.clean.fq.gz -t 16 -x hifi
 ```
-Two output files will be generated, namely <b>'hifi.clean.fq.gz'</b> and <b>'hifi.clean.html'</b>. <br>
+Two output files will be generated, namely <b>'hifi.clean.fq.gz'</b> and <b>'[hifi.clean.html](http://htmlpreview.github.io/?https://github.com/HuiyangYu/TGSFilter/blob/main/html/hifi.clean.html)'</b>. <br>
 The log information printed on the screen will contain the following content:
 ```
 INFO: read type: PacBio highly accurate long reads (hifi).
