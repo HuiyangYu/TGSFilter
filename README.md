@@ -136,9 +136,12 @@ TGSFilter allows you to set the minimum read quality using the '-q' option. By d
 '-q 10' for ONT reads,<br> 
 '-q 20' for HiFi reads,<br> 
 '-q 0' for CLR reads.</b>
+
 ### 4.2 How to set min reads length (-l)?
 The default minimum read length outputted by TGSFilter is 1000 bp. Generally, HIFI reads do not require additional length filtering. However, CLR and ONT reads require length filtering based on the sequencing depth. For CLR reads, you can set '-l 10000'; for ONT, '-l' can be set between 20000 and 50000. If the sequencing depth for ONT ultra-long reads exceeds 100X, you can also set '-l 100000'.
-### 4.3 
+
+### 4.3 Should I keep as many reads as possible?
+In general, whether for variant calling or genome assembly, 40-50X of sequencing depth is usually sufficient. Excessive depth may adversely affect downstream analyses. Filtering out low-quality and short sequencing reads while ensuring adequate sequencing depth not only reduces the time required for downstream analysis but also yields higher quality analytical results.
 
 ### 4.2 How does TGSFilter identify adapter sequences?
 TGSFilter employs three steps for identifying adapter sequences.<br>
