@@ -23,6 +23,7 @@
 #include "igzip_lib.h"
 #include "libdeflate.h"
 #include "concurrentqueue.h"
+#include "report.cpp"
 
 using namespace std;
 
@@ -30,18 +31,18 @@ uint8_t Base[16] = {0,65,67,0,71,0,0,0,84,0,0,0,0,0,0,78};
 
 int  TGSFilter_usage() {
 	cout <<""
-		"Usage: tgsfilter -1 TGS.raw.fq.gz -o TGS.clean.fq.gz\n"
+		"Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz\n"
 		" Input/Output options:\n"
 		"   -i  <str>   input of bam/fasta/fastq file\n"
 		"   -o  <str>   output of fasta/fastq file instead of stdout\n"
 		" Basic filter options:\n"
 		"   -l  <int>   min length of read to out [1000]\n"
 		"   -L  <int>   max length of read to out\n"
-		"   -q  <int>   min Phred average quality score [0]\n"
-		"   -Q  <int>   max Phred average quality score \n"
-		"   -p          convert the base score to error probability\n"
+		"   -q <float>  min Phred average quality score\n"
+		"   -Q <float>  max Phred average quality score\n"
 		"   -n  <int>   read number for base content check [100000]\n"
 		"   -e  <int>   read end length for base content check [150]\n"
+		"   -b <float>  bias (%) of adjacent base content at read end [1]\n"
 		"   -5  <int>   trim bases from the 5' end of the read [auto]\n"
 		"   -3  <int>   trim bases from the 3' end of the read [auto]\n"
 		" Adapter filter options:\n"
@@ -49,7 +50,7 @@ int  TGSFilter_usage() {
 		"   -A          disable reads filter, only for adapter identify\n"
 		"   -N  <int>   read number for adapter identify [100000]\n"
 		"   -E  <int>   read end length for adapter trim [150]\n"
-		"   -m  <int>   min match length for end adapter [4]\n"
+		"   -m  <int>   min match length for end adapter [15]\n"
 		"   -M  <int>   min match length for middle adapter [35]\n"
 		"   -T  <int>   extra trim length for middle adpter on both side [50]\n"
 		"   -s <float>  min similarity for end adapter [0.75]\n"
@@ -64,8 +65,9 @@ int  TGSFilter_usage() {
 		" Other options:\n"
 		"   -c  <int>   compression level (0-9) for compressed output [6]\n"
 		"   -f          force FASTA output (discard quality) \n"
+		"   -x  <str>   read type (ont|clr|hifi)\n"
 		"   -t  <int>   number of threads [16]\n"
-		"   -h          show help [v1.09]\n"
+		"   -h          show help [v1.10]\n"
 		"\n";
 	return 1;
 }
@@ -81,17 +83,17 @@ class Para_A24 {
 		string TmpOutFile;
 		//
 		int MinLen;
-		uint64_t MaxLen;
-		int MinQ;
-		uint64_t MaxQ;
-		bool ErrorPro;
+		int MaxLen;
+		float MinQ;
+		float MaxQ;
 		int BCNum;
 		int BCLen;
-		int HeadCrop;
-		int TailCrop;
+		float EndBias;
+		int HeadTrim;
+		int TailTrim;
 		//
 		string AdapterFile;
-		int ReadNumber;
+		int ADNum;
 		int EndLen;
 		int Kmer;
 		int AdapterLen;
@@ -111,6 +113,7 @@ class Para_A24 {
 		bool Filter;
 		//
 		bool FastaOut;
+		string readType;
 		int n_thread;
 		int Infq;
 		int Outfq;
@@ -123,17 +126,17 @@ class Para_A24 {
 			OutFile="";
 			
 			MinLen=1000;
-			MaxLen=UINT64_MAX;
-			MinQ=0;
-			MaxQ=UINT64_MAX;
-			ErrorPro=false;
+			MaxLen=2147483647;
+			MinQ=-1;
+			MaxQ=255;
 			BCNum=100000;
 			BCLen=150;
-			HeadCrop=-1;
-			TailCrop=-1;
+			EndBias=1;
+			HeadTrim=-1;
+			TailTrim=-1;
 			
 			AdapterFile="";
-			ReadNumber=100000;
+			ADNum=100000;
 			EndLen=150;
 			Kmer=19;
 			AdapterLen=30;
@@ -153,6 +156,7 @@ class Para_A24 {
 			Filter=true;
 			
 			FastaOut=false;
+			readType="";
 			n_thread=16;
 			Infq=3;
 			Outfq=3;
@@ -162,25 +166,8 @@ class Para_A24 {
 		}
 };
 
-inline void error_exit(const string& msg) {
-    cerr << "ERROR: " << msg << endl;
-    exit(-1);
-}
-
 inline void  LogLackArg(string &flag) {
 	cerr << "Error: Lack Argument for [ -"<<flag<<" ]"<<endl;
-}
-
-string & replace_all(string & str, const string & pattern, const string & replacement) {
-	while(true) {
-		string::size_type  pos(0);
-		if((pos=str.find(pattern))!=string::npos){
-			str.replace(pos,pattern.length(),replacement);
-		} else{
-			break;
-		}
-	}
-	return str;
 }
 
 uint64_t GetGenomeSize(string &genomeSize) {
@@ -213,7 +200,7 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 		}
 
 		string flag=argv[i] ;
-		flag=replace_all(flag,"-","");
+		flag=regex_replace(flag,"-","");
 
 		//input/output options
 		if (flag == "i" ) {
@@ -244,15 +231,12 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 		else if (flag == "q") {
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
-			P2In->MinQ=atoi(argv[i]);
+			P2In->MinQ=atof(argv[i]);
 		}
 		else if (flag == "Q") {
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
-			P2In->MaxQ=atoi(argv[i]);
-		}
-		else if (flag == "p") {
-			P2In->ErrorPro=true;
+			P2In->MaxQ=atof(argv[i]);
 		}
 		else if (flag == "n"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
@@ -264,15 +248,20 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			i++;
 			P2In->BCLen=atoi(argv[i]);
 		}
+		else if (flag == "b"){
+			if(i + 1 == argc) {LogLackArg(flag); return 1;}
+			i++;
+			P2In->EndBias=atof(argv[i]);
+		}
 		else if (flag == "5") {
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
-			P2In->HeadCrop=atoi(argv[i]);
+			P2In->HeadTrim=atoi(argv[i]);
 		}
 		else if (flag == "3"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
-			P2In->TailCrop=atoi(argv[i]);
+			P2In->TailTrim=atoi(argv[i]);
 		}
 		
 		//Adapter filter options
@@ -287,7 +276,7 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 		else if (flag == "N"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
-			P2In->ReadNumber=atoi(argv[i]);
+			P2In->ADNum=atoi(argv[i]);
 		}
 		else if (flag == "E"){
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
@@ -324,7 +313,7 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			P2In->MidSim=atof(argv[i]);
 			if (P2In->MidSim<0.8){
 				P2In->MidSim=0.8;
-				cerr << "Warning: re set -S to : "<<P2In->MidSim<<endl;
+				cerr << "Warning: reset -S to : "<<P2In->MidSim<<endl;
 			}
 		}
 		else if (flag == "D"){
@@ -369,6 +358,12 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 		else if (flag  ==  "f") {
 			P2In->FastaOut=true;
 		}
+		else if (flag == "x" ) {
+			if(i + 1 == argc) {LogLackArg(flag); return 1;}
+			i++;
+			P2In->readType=argv[i];
+		}
+
 		else if (flag  ==  "t") {
 			if(i + 1 == argc) {LogLackArg(flag) ; return 1;}
 			i++;
@@ -382,13 +377,38 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			return 1;
 		}
 	}
-	//check threads
-	unsigned int maxThreads = std::thread::hardware_concurrency();
-	if (maxThreads > 0 && P2In->n_thread > maxThreads){
-		P2In->n_thread = maxThreads-2;
-	}
-	
 
+	// check input and output
+	if ((P2In->InFile).empty()) {
+		cerr<< "Error: -i lack argument for the must"<<endl;
+		exit(-1);
+	}
+
+	if (access((P2In->InFile).c_str(), 0) != 0) {
+		cerr<<"Error: Can't find this file for -i "<<(P2In->InFile)<<endl;
+		exit(-1);
+	}
+
+	//check read type
+	if (!(P2In->readType).empty()){
+		string readType = P2In->readType;
+		if (readType == "CLR" || readType == "clr"){
+			cerr <<"INFO: read type: PacBio continuous long read (clr)."<<endl;
+			P2In->readType="clr";
+		}else if (readType == "HIFI" || readType == "hifi"){
+			cerr <<"INFO: read type: PacBio highly accurate long reads (hifi)."<<endl;
+			P2In->readType = "hifi";
+		}else if (readType == "CCS" || readType == "ccs"){
+			cerr <<"INFO: read type: PacBio highly accurate long reads (hifi)."<<endl;
+			P2In->readType = "hifi";
+		}else if (readType == "ONT" || readType == "ont"){
+			cerr <<"INFO: read type: NanoPore reads (ont)."<<endl;
+			P2In->readType = "ont";
+		}else{
+			cerr <<"Error: read type should be : clr/hifi/ccs/ont or CLR/HIFI/CCS/ONT."<<endl;
+			exit(-1);
+		}
+	}
 	
 	//check downsampling
 	if (P2In->DesiredNum > 0 || P2In->DesiredFrac > 0){
@@ -398,26 +418,29 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			if (P2In->GenomeSize > 0 && P2In->DesiredDepth > 0){
 				P2In->Downsample=true;
 			}else if (P2In->GenomeSize > 0 && P2In->DesiredDepth == 0){
-				cerr<< "The desired depth was required, along with the genome size!"<<endl;
-				return 1;
+				cerr<< "Error: The desired depth was required, along with the genome size!"<<endl;
+				exit(-1);
 			}else if (P2In->GenomeSize == 0 && P2In->DesiredDepth > 0){
-				cerr<< "The genome size was required, along with the desired depth!"<<endl;
-				return 1;
+				cerr<< "Error: The genome size was required, along with the desired depth!"<<endl;
+				exit(-1);
 			}
 		}else{
 			P2In->Downsample=false;
 		}
 	}
-
-	// check input and output
-	if ((P2In->InFile).empty()) {
-		cerr<< "Error: -i lack argument for the must"<<endl;
-		return 1;
+	
+	//check threads
+	unsigned int maxThreads = std::thread::hardware_concurrency();
+	if (maxThreads > 0 && P2In->n_thread > maxThreads - 1){
+		P2In->n_thread = maxThreads-1;
+		if (P2In->n_thread <= 24){
+			cerr <<"Warning: reset -t to: "<<P2In->n_thread<<endl;
+		}
 	}
 
-	if (access((P2In->InFile).c_str(), 0) != 0) {
-		cerr<<"Error: Can't find this file for -i "<<(P2In->InFile)<<endl;
-		return 1;
+	if (P2In->n_thread > 24){
+		P2In->n_thread=24;
+		cerr <<"Warning: reset -t to: "<<P2In->n_thread<<endl;
 	}
 	
 	return  0;
@@ -425,15 +448,14 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 }
 
 //read fasta or fastq file
-#define FQ_BUF_SIZE (1<<21)
-#define IGZIP_IN_BUF_SIZE (1<<20)
-#define GZIP_HEADER_BYTES_REQ (1<<16)
+#define inBuffSize  1048576
+#define outBuffSize 1048576
 
-struct ks {
-    string name;
-    string seq;
-    string strand;
-    string qual;
+struct kseq {
+        string name;
+        string seq;
+        string strand;
+        string qual;
 };
 
 inline bool ends_with(string const & value,  string const & ending) {
@@ -443,33 +465,36 @@ inline bool ends_with(string const & value,  string const & ending) {
 
 class FastxReader {
 public:
-    FastxReader(string filename) {
-        mFilename = filename;
-        mZipped = false;
-        isFastq = 2;
-        mFile = NULL;
-        mFastqBuf = new char[FQ_BUF_SIZE];
-        mBufDataLen = 0;
-        mBufUsedLen = 0;
-        mGzipInputBufferSize = IGZIP_IN_BUF_SIZE;
-        mGzipInputBuffer = new unsigned char[mGzipInputBufferSize];
-        mGzipOutputBufferSize = FQ_BUF_SIZE;
-        mGzipOutputBuffer = (unsigned char*)mFastqBuf;
-        mGzipInputUsedBytes = 0;
+    FastxReader(string filename)
+                : mFilename(filename),
+                  mFile(nullptr),
+                  state(),
+	              gz_hdr(),
+                  ret(1),
+                  remainingData(),
+                  combinedData(),
+                  isGZ(2),
+                  isFastq(2),
+                  in_nbytes(0),
+                  combinedOffset(0),
+                  combinedSize(0),
+                  done(false)
+    {   
+        inBuff = new unsigned char[inBuffSize];
+        outBuff = new unsigned char[outBuffSize];
         init();
     }
 
     ~FastxReader() {
-        close();
-        delete[] mFastqBuf;
-        delete[] mGzipInputBuffer;
+        if (mFile) {
+            fclose(mFile);
+            mFile = nullptr;
+        }
+        delete[] inBuff;
+        delete[] outBuff;
     }
 
-    bool isZipped(){
-        return mZipped;
-    }
-
-    ks* read(){
+    kseq* read(){
         if (isFastq == 1){
             return readFastq();
         }else{
@@ -480,22 +505,25 @@ public:
 private:
     void init(){
         mFile = fopen(mFilename.c_str(), "rb");
-        if(mFile == NULL) {
-            error_exit("Failed to open file: " + mFilename);
+        if (mFile == nullptr) {
+            std::cerr <<"Failed to open file: " << mFilename<<std::endl;
         }
-        
+
         if (ends_with(mFilename, ".gz")){
-            isal_gzip_header_init(&mGzipHeader);
-            isal_inflate_init(&mGzipState);
-            mGzipState.crc_flag = ISAL_GZIP_NO_HDR_VER;
-            mGzipState.next_in = mGzipInputBuffer;
-            mGzipState.avail_in = fread(mGzipState.next_in, 1, mGzipInputBufferSize, mFile);
-            mGzipInputUsedBytes += mGzipState.avail_in;
-            int ret = isal_read_gzip_header(&mGzipState, &mGzipHeader);
+            //check gzip header
+            isal_gzip_header_init(&gz_hdr);
+            isal_inflate_init(&state);
+            state.crc_flag = ISAL_GZIP_NO_HDR_VER;
+            state.next_in = inBuff;
+            state.avail_in = fread(state.next_in, 1, inBuffSize, mFile);
+            ret = isal_read_gzip_header(&state, &gz_hdr);
             if (ret != ISAL_DECOMP_OK) {
-                error_exit("igzip: Error invalid gzip header found: "  + mFilename);
+                cerr << "Error: invalid gzip header found for file: "<<mFilename<<endl;
+                exit(-1);
             }
-            mZipped = true;
+
+            isGZ = 1;
+
             if (ends_with(mFilename, ".fastq.gz") || ends_with(mFilename, ".fq.gz")){
                 isFastq = 1;
             }else if (ends_with(mFilename, ".fasta.gz") || ends_with(mFilename, ".fa.gz")){
@@ -504,7 +532,7 @@ private:
                 isFastq = 2;
             }
         }else{
-            mZipped = false;
+            isGZ = 0;
             if (ends_with(mFilename, ".fastq") || ends_with(mFilename, ".fq")){
                 isFastq = 1;
             }else if (ends_with(mFilename, ".fasta") || ends_with(mFilename, ".fa")){
@@ -513,257 +541,189 @@ private:
                 isFastq = 2;
             }
         }
+    }
+
+    void readToBuff(){
+        combinedData.clear();
+        combinedData.insert(combinedData.end(), remainingData.begin(), remainingData.end());
         
-        readToBuf();
-    }
+        if (isGZ == 1){
+            bool uncompress=false;
+            while (!uncompress){
+                if(feof(mFile) && state.avail_in==0){
+                    done=true;
+                    return;
+                }
 
-    void readToBuf(){
-        mBufDataLen = 0;
-        if(mZipped) {
-            readToBufIgzip();
-        } else {
-            if(!eof())
-                mBufDataLen = fread(mFastqBuf, 1, FQ_BUF_SIZE, mFile);
-        }
-        mBufUsedLen = 0;
-    }
+                if (state.block_state != ISAL_BLOCK_FINISH ){
 
-    void readToBufIgzip(){
-        mBufDataLen = 0;
-        while(mBufDataLen == 0) {
-            if(eof() && mGzipState.avail_in==0)
-                return;
-            if (mGzipState.avail_in == 0) {
-                mGzipState.next_in = mGzipInputBuffer;
-                mGzipState.avail_in = fread(mGzipState.next_in, 1, mGzipInputBufferSize, mFile);
-                mGzipInputUsedBytes += mGzipState.avail_in;
-            }
-            mGzipState.next_out = mGzipOutputBuffer;
-            mGzipState.avail_out = mGzipOutputBufferSize;
-            int ret = isal_inflate(&mGzipState);
-            if (ret != ISAL_DECOMP_OK) {
-                error_exit("igzip: encountered while decompressing file: " + mFilename);
-            }
-            mBufDataLen = mGzipState.next_out - mGzipOutputBuffer;
-            if(eof() || mGzipState.avail_in>0)
-                break;
-        }
-        // this block is finished
-        if(mGzipState.block_state == ISAL_BLOCK_FINISH) {
-            // a new block begins
-            if(!eof() || mGzipState.avail_in > 0) {
-                if (mGzipState.avail_in == 0) {
-                    isal_inflate_reset(&mGzipState);
-                    mGzipState.next_in = mGzipInputBuffer;
-                    mGzipState.avail_in = fread(mGzipState.next_in, 1, mGzipInputBufferSize, mFile);
-                    mGzipInputUsedBytes += mGzipState.avail_in;
-                } else if (mGzipState.avail_in >= GZIP_HEADER_BYTES_REQ){
-                    unsigned char* old_next_in = mGzipState.next_in;
-                    size_t old_avail_in = mGzipState.avail_in;
-                    isal_inflate_reset(&mGzipState);
-                    mGzipState.avail_in = old_avail_in;
-                    mGzipState.next_in = old_next_in;
-                } else {
-                    size_t old_avail_in = mGzipState.avail_in;
-                    memmove(mGzipInputBuffer, mGzipState.next_in, mGzipState.avail_in);
-                    size_t added = 0;
-                    if(!eof()) {
-                        added = fread(mGzipInputBuffer + mGzipState.avail_in, 1, mGzipInputBufferSize - mGzipState.avail_in, mFile);
-                        mGzipInputUsedBytes += added;
+                    if (state.avail_in == 0) {
+                        state.next_in = inBuff;
+                        state.avail_in = fread(state.next_in, 1, inBuffSize, mFile);
                     }
-                    isal_inflate_reset(&mGzipState);
-                    mGzipState.next_in = mGzipInputBuffer;
-                    mGzipState.avail_in = old_avail_in + added;
-                }
-                int ret = isal_read_gzip_header(&mGzipState, &mGzipHeader);
-                if (ret != ISAL_DECOMP_OK) {
-                    error_exit("igzip: invalid gzip header found");
+                    state.next_out = outBuff;
+                    state.avail_out = outBuffSize;
+
+                    ret = isal_inflate(&state);
+                    if (ret != ISAL_DECOMP_OK) {
+                        cerr << "Error: Error encountered while decompressing file: "<<mFilename<<endl;
+                        exit(-1);
+                    }else{
+                        in_nbytes = outBuffSize - state.avail_out;
+                        combinedData.insert(combinedData.end(), outBuff, outBuff + (outBuffSize - state.avail_out));
+                        remainingData.clear();
+                        uncompress=true;
+                    }
+                } else {
+                    if (state.avail_in > 1 && state.next_in[1] != 139){
+                        return;
+                    }
+                    
+                    isal_inflate_reset(&state);
+                    state.crc_flag = ISAL_GZIP;
                 }
             }
+        } else if (isGZ == 0){
+            if (feof(mFile)){
+                done=true;
+                return;
+            }
+
+            in_nbytes = fread(inBuff, 1, inBuffSize, mFile);
+            combinedData.insert(combinedData.end(), inBuff, inBuff + in_nbytes);
+            remainingData.clear();
         }
 
-        if(eof() && mGzipState.avail_in == 0) {
-            // all data was processed - fail if not at logical end of zip file (truncated?)
-            if (mGzipState.block_state != ISAL_BLOCK_FINISH || !mGzipState.bfinal) {
-                error_exit("igzip: unexpected eof");
+        combinedOffset = 0;
+        combinedSize = combinedData.size();
+
+    }
+
+    string getLine(){
+        while (true){
+            if (combinedOffset < combinedSize){
+                const unsigned char *data=combinedData.data() + combinedOffset;
+                size_t size = combinedSize - combinedOffset;
+                const unsigned char *newline = static_cast<const unsigned char*>(memchr(data, '\n', size));
+                
+                if (newline != nullptr) {
+                    size_t length = newline - data;
+                    if (newline > data && newline[-1] == '\r') {
+                        length--;
+                    }
+                    combinedOffset += length + 1;
+                    return std::string(reinterpret_cast<const char*>(data), length);
+                } else {
+                    remainingData.insert(remainingData.end(), combinedData.begin() + combinedOffset, combinedData.end());
+                }
             }
+
+            if (!done){
+                 readToBuff();
+            }else{
+                return "";
+            }
+
         }
     }
 
-    bool bufferFinished(){
-        if(mZipped) {
-            return eof() && mGzipState.avail_in == 0;
+    kseq* readFastq(){
+    
+        kseq* ks = new kseq();
+
+        for (int i=0; i<5; i++){
+            ks->name= getLine();
+            if (!ks->name.empty() && (ks->name[0] == '@')){
+                ks->seq = getLine();
+                ks->strand = getLine();
+                if (ks->strand[0] == '+' && !(ks->seq.empty())){
+                    break;
+                }
+            }
+        }
+
+        if(done){
+            return nullptr;
+        }
+
+        if (ks->name.empty()) {
+            cerr <<"Error: input format wrong!"<<endl;
+            delete ks;
+            return nullptr;
         } else {
-            return eof();
+            ks->name = ks->name.substr(1);
         }
+
+        ks->qual = getLine();
+        if (ks->qual.empty()) {
+            cerr << "Error: quality are empty:" << ks->name << endl;
+            delete ks;
+            return nullptr;
+        }
+
+        if (ks->qual.length() != ks->seq.length()) {
+            cerr << "warning: sequence and quality have different length:" << ks->name << endl;
+            delete ks;
+            return nullptr;
+        }
+
+        return ks;
     }
 
-    void getLine(string* line){
-        int copied = 0;
-        int start = mBufUsedLen;
-        int end = start;
+    kseq* readFasta(){
+        
+        kseq* ks = new kseq();
 
-        while(end < mBufDataLen) {
-            if(mFastqBuf[end] != '\r' && mFastqBuf[end] != '\n'){
-                end++;
-            } else {
+        for (int i=0; i<3; i++){
+            ks->name= getLine();
+            if (!ks->name.empty() && (ks->name[0] == '>')){
                 break;
             }
         }
 
-        // this line well contained in this buf, or this is the last buf
-        if(end < mBufDataLen || bufferFinished()) {
-            int len = end - start;
-            line->assign(mFastqBuf+start, len);
-            end++;
-            // handle \r\n
-            if(end < mBufDataLen-1 && mFastqBuf[end-1]=='\r' && mFastqBuf[end] == '\n'){
-                end++;
-            }
-            mBufUsedLen = end;
-            return ;
+        if(done){
+            return nullptr;
         }
 
-        // this line is not contained in this buf, we need to read new buf
-        line->assign(mFastqBuf+start, mBufDataLen - start);
-
-        while(true) {
-            readToBuf();
-            start = 0;
-            end = 0;
-            while(end < mBufDataLen) {
-                if(mFastqBuf[end] != '\r' && mFastqBuf[end] != '\n')
-                    end++;
-                else
-                    break;
-            }
-            // this line well contained in this buf
-            if(end < mBufDataLen || bufferFinished()) {
-                int len = end - start;
-                line->append(mFastqBuf+start, len);
-
-                // skip \n or \r
-                end++;
-                // handle \r\n
-                if(end < mBufDataLen-1 && mFastqBuf[end] == '\n')
-                    end++;
-
-                mBufUsedLen = end;
-                return;
-            }
-            // even this new buf is not enough, although impossible
-            line->append(mFastqBuf+start, mBufDataLen);
-        }
-
-        return;
-    }
-
-    ks* readFastq(){
-        if (mBufUsedLen >= mBufDataLen && bufferFinished()) {
-            return NULL;
-        }
-
-        ks* readObj = new ks();
-        
-        getLine(&(readObj->name));
-
-        // name should start with @
-        while ((readObj->name.empty() && !(mBufUsedLen >= mBufDataLen && bufferFinished())) 
-                                || (!readObj->name.empty() && (readObj->name[0] != '@'))) { 
-            getLine(&(readObj->name));
-        }
-
-		if (readObj->name.empty()) {
-            delete readObj;
-            return NULL;
+        if (ks->name.empty()) {
+            cerr <<"Error: input format wrong!"<<endl;
+            delete ks;
+            return nullptr;
         } else {
-            readObj->name = readObj->name.substr(1);
+            ks->name = ks->name.substr(1);
         }
 
-        getLine(&(readObj->seq));
-        getLine(&(readObj->strand));
-        getLine(&(readObj->qual));
 
-        if (readObj->strand.empty() || (readObj->strand[0] != '+')) {
-            std::cerr << "Error: third line should begin with '+', got: " << readObj->strand << endl;
-            delete readObj;
-            return NULL;
-            
+        ks->seq = getLine();
+        if (ks->seq.empty()) {
+            cerr << "Error: sequence are empty:" << ks->name << endl;
+            delete ks;
+            return nullptr;
         }
 
-        if (readObj->qual.empty() && readObj->seq.empty()) {
-            cerr << "warning: sequence and quality are empty:" << readObj->name << endl;
-            delete readObj;
-            return NULL;
-        }
-
-        if (readObj->qual.length() != readObj->seq.length()) {
-            cerr << "warning: sequence and quality have different length:" << readObj->name << endl;
-            delete readObj;
-            return NULL;
-        }
-
-        return readObj;
+        return ks;
     }
 
-    ks* readFasta(){
-        if (mBufUsedLen >= mBufDataLen && bufferFinished()) {
-            return NULL;
-        }
-
-        ks* readObj = new ks();
-        
-        getLine(&(readObj->name));
-
-        // name should start with >
-        while ((readObj->name.empty() && !(mBufUsedLen >= mBufDataLen && bufferFinished())) 
-                                || (!readObj->name.empty() && (readObj->name[0] != '>'))) { 
-            getLine(&(readObj->name));
-        }
-
-        if (readObj->name.empty()) {
-            delete readObj;
-            return NULL;
-        } else {
-            readObj->name = readObj->name.substr(1);
-        }
-
-        getLine(&(readObj->seq));
-
-        if (readObj->seq.empty()) {
-            cerr << "warning: sequence is empty:" << readObj->name << endl;
-            delete readObj;
-            return NULL;
-        }
-
-        return readObj;
-    }
-
-    bool eof(){
-        return feof(mFile);
-    }
-
-    void close(){
-        if (mFile){
-		    fclose(mFile);
-		    mFile = NULL;
-	    }
-    }
-
-    string mFilename;
-    struct isal_gzip_header mGzipHeader;
-    struct inflate_state mGzipState;
-    unsigned char *mGzipInputBuffer;
-    unsigned char *mGzipOutputBuffer;
-    size_t mGzipInputBufferSize;
-    size_t mGzipOutputBufferSize;
-    size_t mGzipInputUsedBytes;
+    //
+    std::string mFilename;
     FILE* mFile;
-    bool mZipped;
+    struct inflate_state state;
+	struct isal_gzip_header gz_hdr;
+    unsigned char *inBuff;
+    unsigned char *outBuff;
+    int ret;
+
+    std::vector<unsigned char> remainingData;
+    std::vector<unsigned char> combinedData;
+
+    int isGZ;
     int isFastq;
-    char* mFastqBuf;
-    int mBufDataLen;
-    int mBufUsedLen;
+
+    size_t in_nbytes;
+    size_t combinedOffset;
+    size_t combinedSize;
+    bool done;
+
 };
 //
 
@@ -815,6 +775,8 @@ string GetFilePreifx(const string& FilePath){
 	}
 	if (ext == "fq" || ext == "fastq" || ext == "fa" || ext == "fasta"){
 		prefix=prefix.substr(0, prefix.rfind('.'));
+	}else if (ext == "bam" || ext == "sam" || ext == "BAM" || ext == "SAM"){
+		prefix=prefix.substr(0, prefix.rfind('.'));
 	}
 	return prefix;
 }
@@ -849,231 +811,118 @@ string rev_comp_seq(const string& dna) {
 	return reverse_complement;
 }
 
-string adapterSearch(Para_A24 *P2In, std::vector<std::string>& reads, float &meanDep){
-	/*
-	PB-1 Pacific Biosciences Blunt Adapter
-	PB-2  Pacific Biosciences C2 Primer
-	ONT-1 Ligation
-	ONT-2 Ligation
-	ONT-3 Rapid
-	ONT-4 1D^2
-	ONT-5 1D^2
-	ONT-6 Ligation(LA) / Native(NA) / Rapid(RA) / Rapid T(RAT) top strand
-	ONT-7 Ligation Adapter bottom strand
-	ONT-8 Native Adapter bottom strand
-	ONT-9 cDNA RT Adapter (CRTA)
-	*/
-	std::map<std::string, std::pair<std::string, std::string>> adapterLib;
+class GetFilterParameterTask {
+public:
+    GetFilterParameterTask(Para_A24 *P2In)
+                          : P2In(P2In),
+                            InPath(P2In->InFile),
+                            seqNum(0),
+                            maxSeq(0),
+                            checkLen(0),
+                            minLen(0),
+                            seqs5p(),
+                            seqs3p(),
+                            minQ(255),
+							maxQ(0),
+							trim5p(0),
+							trim3p(0),
+							adapter5p(),
+							adapter3p(),
+							adapterDep5p(0),
+							adapterDep3p(0),
+							adapterLib(22) {}
 
-	adapterLib["PB-1"] = {"ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT", 
-						 "ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT"};
-	adapterLib["PB-2"] = {"AAAAAAAAAAAAAAAAAATTAACGGAGGAGGAGGA", 
-						 "TCCTCCTCCTCCGTTAATTTTTTTTTTTTTTTTTT"};
-	adapterLib["ONT-1"] = {"AATGTACTTCGTTCAGTTACGTATTGCT", 
-						  "AGCAATACGTAACTGAACGAAGTACATT"};
-	adapterLib["ONT-2"] = {"GCAATACGTAACTGAACGAAGT",
-						   "ACTTCGTTCAGTTACGTATTGC"};
-	adapterLib["ONT-3"] = {"GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA", 
-						 	"TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC"};
-	adapterLib["ONT-4"] = {"GGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCCT",
-						   "AGGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCC"};
-	adapterLib["ONT-5"] = {"GGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCCAGCAAT", 
-							"ATTGCTGGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCC"};
-	adapterLib["ONT-6"] = {"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT",
-						  "AGCAATACGTAACTGAACGAAGTACAGGAAAAAAAA"};
-	adapterLib["ONT-7"] = {"GCAATACGTAACTGAACGAAGTACAGG",
-						   "CCTGTACTTCGTTCAGTTACGTATTGC"};
-	adapterLib["ONT-8"] = {"ACGTAACTGAACGAAGTACAGG", 
-							"CCTGTACTTCGTTCAGTTACGT"};
-	adapterLib["ONT-9"] = {"CTTGCGGGCGGCGGACTCTCCTCTGAAGATAGAGCGACAGGCAAG",
-						   "CTTGCCTGTCGCTCTATCTTCAGAGGAGAGTCCGCCGCCCGCAAG"};
-	//
-	std::map<std::pair<std::string, std::string>, int> maps;
+    int trim5p, trim3p;
+    std::string adapter5p, adapter3p;
+    float adapterDep5p, adapterDep3p;
+	std::vector<std::string> adapterLib;
 
-	float minSim=P2In->MidSim;
-	for (const auto& ts : reads) {
-        int tsLen=ts.length();
-		string bestName;
-		string bestStrand;
-		int minLen=0;
-        for (const auto& pair : adapterLib) {
-            string name = pair.first;
-			string qsFor=pair.second.first;
-            string qsRev=pair.second.second;
-            int qsForLen=qsFor.length();
-            int qsRevLen=qsRev.length();
-            int minK=static_cast<int>((1-minSim)*qsForLen)+1;
-			//
-            EdlibAlignResult result_for = edlibAlign(qsFor.c_str(), qsForLen, ts.c_str(), tsLen, 
-                        edlibNewAlignConfig(minK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
-            if (result_for.status == EDLIB_STATUS_OK){
-                int dist=result_for.editDistance;
-                int length=result_for.alignmentLength;
-				int mlen=length-dist;
-				int numAln=result_for.numLocations;
-				if (numAln>0){
-					if (mlen>minLen){
-						bestName=name;
-						bestStrand="+";
-						minLen=mlen;
-					}
-				}
-            }
-            edlibFreeAlignResult(result_for);
-            //
-            EdlibAlignResult result_rev = edlibAlign(qsRev.c_str(), qsRevLen, ts.c_str(), tsLen, 
-                        edlibNewAlignConfig(minK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
-            if (result_rev.status == EDLIB_STATUS_OK){
-                int dist=result_rev.editDistance;
-                int length=result_rev.alignmentLength;
-				int mlen=length-dist;
-				int numAln=result_for.numLocations;
-				if (numAln>0){
-					if (mlen>minLen){
-						bestName=name;
-						bestStrand="-";
-						minLen=mlen;
-					}
-				}
-            }
-            edlibFreeAlignResult(result_rev);
+    void start() {
+
+        checkLen = P2In->EndLen;
+        if (checkLen < P2In->BCLen){
+            checkLen = P2In->BCLen;
         }
-		if (minLen>0){
-			maps[std::make_pair(bestName, bestStrand)]+=minLen;
+		if (checkLen < 100){
+			checkLen = 100;
+		}
+
+		minLen = P2In->MinLen;
+		if (minLen < 2 * checkLen){
+			minLen = 2 * checkLen;
+		}
+
+        maxSeq=P2In->ADNum;
+        if (maxSeq<P2In->BCNum){
+            maxSeq=P2In->BCNum;
+        }
+
+        if ((P2In->Infq)==2){
+			read_bam();
+		}else if((P2In->Infq)==1 || (P2In->Infq)==0){
+			read_fastx();
+		}
+		Get_qType();
+
+        std::vector<std::thread> threads;
+        
+		if ((P2In->HeadTrim)<0){
+        	threads.emplace_back(&GetFilterParameterTask::CheckBaseContent, this, ref(seqs5p), "5p");
+		}
+		if ((P2In->TailTrim)<0){
+        	threads.emplace_back(&GetFilterParameterTask::CheckBaseContent, this, ref(seqs3p), "3p");
+		}
+
+		if ((P2In->AdapterFile).empty()){
+        	threads.emplace_back(&GetFilterParameterTask::adapterSearch, this, ref(seqs5p), "5p");
+        	threads.emplace_back(&GetFilterParameterTask::adapterSearch, this, ref(seqs3p), "3p");
+		}
+
+        for (auto& thread : threads) {
+			thread.join();
 		}
     }
 
-	//
-	std::vector<std::pair<std::pair<std::string, std::string>, int>> maps_vec(maps.begin(), maps.end());
-	std::sort(maps_vec.begin(), maps_vec.end(),
-              [](const std::pair<std::pair<std::string, std::string>, int>& a,
-                 const std::pair<std::pair<std::string, std::string>, int>& b) -> bool {
-                  return a.second > b.second;
-              });
-	
-	string name;
-	string adapter;
-	string strand;
-
-	if (!maps_vec.empty()) {
-        const auto& maxItem = maps_vec.front();
-		name=maxItem.first.first;
-		adapter=adapterLib[name].second;
-		strand=maxItem.first.second;
-		meanDep=static_cast<float>(maxItem.second)/(adapter.length());
-		if (meanDep<2){
-			adapter="";
-			strand="";
-			meanDep=0;
-		}
-    }
-
-	if (strand=="-"){
-		adapter=rev_comp_seq(adapter);
-	}
-	
-	return adapter;
-}
-
-std::map<std::string, std::pair<std::string, std::string>> adapters;
-
-int Get_filter_parameter(Para_A24 *P2In){
-	string FilePath;
-	string InPath=(P2In->InFile);
-	string OutPath=(P2In->OutFile);
-	if (OutPath.empty()){
-		FilePath=InPath;
-	}else{
-		FilePath=OutPath;
-	}
-
-	int seqNum = 0;
-	int ADLen = P2In->EndLen;
-	if (ADLen > 100){
-		ADLen = 100;
-	}
-	int BCLen = P2In->BCLen;
-	int BCNum = P2In->BCNum;
-	int ADNum = P2In->ReadNumber;
-	int maxSeq = BCNum;
-	if (maxSeq < ADNum){
-		maxSeq = ADNum;
-	}
-	
-	int qtNum=10000;
-	int minQ=50000;
-	int maxQ=0;
-
-	std::vector<std::string> headSeq;
-	std::vector<std::string> tailSeq;
-
-	std::vector<int> headA(BCLen, 0);
-	std::vector<int> headT(BCLen, 0);
-	std::vector<int> tailA(BCLen, 0);
-	std::vector<int> tailT(BCLen, 0);
-
-	if ((P2In->Infq)==0 || (P2In->Infq)==1){
+private:
+    int read_fastx() {
 		FastxReader reader(InPath);
-        ks* readObj = nullptr;
-        while ((readObj = reader.read()) != nullptr) {
-			if (seqNum>=maxSeq){
-				break;
-			}
-			string name = readObj->name;
-			string seq = readObj->seq;
-			string qual = readObj->qual;
-			delete readObj;
+        kseq* ks = nullptr;
+        while ((ks = reader.read()) != nullptr) {
+			string seq = ks->seq;
+			string qual = ks->qual;
+            delete ks;
+			int seqLen = seq.length();
+            if (seqLen < minLen){
+                continue;
+            }
 
-			int length=seq.length();
-
-
-			if (length<5000){
-				continue;
-			}
+            if (seqNum >= maxSeq){
+                break;
+            }
 			seqNum++;
-			//
-			if (seqNum < qtNum){
-				int qual_len=qual.length();
-				for (int i=0; i<qual_len; i++) {
-					if(minQ>qual[i]) {
-						minQ=qual[i];
-					}
-					if(maxQ<qual[i]) {
-						maxQ=qual[i];
-					}
+
+            string seq5p=seq.substr(0, checkLen);
+            string seq3p=rev_comp_seq(seq.substr(seqLen-checkLen));
+            qual=qual.substr(0, checkLen);
+            seqs5p.push_back(seq5p);
+            seqs3p.push_back(seq3p);
+
+			for (char q : qual) {
+				if(minQ > q) {
+					minQ = q;
+				}
+				if(maxQ < q) {
+					maxQ = q;
 				}
 			}
+        }
+        return 0;
+    }
 
-			string head_seq=seq.substr(0, BCLen);
-			string tail_seq=seq.substr(length-BCLen);
-			if (seqNum<BCNum){
-				for (int x=0; x < BCLen; x++){
-					if (head_seq[x]=='A'){
-						headA[x]++;
-					}else if(head_seq[x]=='T'){
-						headT[x]++;
-					}
-
-					if (tail_seq[x]=='A'){
-						tailA[x]++;
-					}else if(tail_seq[x]=='T'){
-						tailT[x]++;
-					}
-
-				}
-			}
-
-			if (seqNum<ADNum){
-				string head_ADSeq=seq.substr(0, ADLen);
-				string tail_ADSeq=seq.substr(length-(ADLen));
-				headSeq.push_back(head_ADSeq);
-				tailSeq.push_back(tail_ADSeq);
-			}
-		}
-	}else if ((P2In->Infq)=2){
-		htsFile *bamFile = hts_open((P2In->InFile).c_str(), "r");
+    int read_bam() {
+        htsFile *bamFile = hts_open(InPath.c_str(), "r");
 		if (bamFile == nullptr) {
-			cerr << "Failed to open BAM file" <<P2In->InFile <<endl;
+			std::cerr << "Error: Failed to open file: " <<InPath <<endl;
 			return 1;
 		}
 		hts_set_opt(bamFile, HTS_OPT_NTHREADS, P2In->n_thread);
@@ -1081,121 +930,54 @@ int Get_filter_parameter(Para_A24 *P2In){
 
 		bam_hdr_t *bamHeader = sam_hdr_read(bamFile);
 		bam1_t *bamRecord = bam_init1();
-		//
-		while (sam_read1(bamFile, bamHeader, bamRecord) >= 0) {
-			if (seqNum>=maxSeq){
-				break;
-			}
-			int seqLen=bamRecord->core.l_qseq;
-			if (seqLen<5000){
-				continue;
-			}
+
+        while (sam_read1(bamFile, bamHeader, bamRecord) >= 0) {
+			int seqLen = bamRecord->core.l_qseq;
+
+            if (seqLen < minLen){
+                continue;
+            }
+
+            if (seqNum >= maxSeq){
+                break;
+            }
 			seqNum++;
 
-			uint8_t *seq = bam_get_seq(bamRecord);
-			uint8_t *qual = bam_get_qual(bamRecord);
+            uint8_t *seqChar = bam_get_seq(bamRecord);
+			uint8_t *qualChar = bam_get_qual(bamRecord);
 
-			string name = bam_get_qname(bamRecord);
-			string sequence;
-			string quality;
+            string seq5p, seq3p;
 
-			for (int i = 0; i < seqLen; ++i) {
-				char b=Base[bam_seqi(seq, i)];
-				char q=qual[i] + 33;
-				sequence+=b;
-				quality+=q;
-			}
-			int qualLen=quality.length();
-			//
-			if (seqNum < qtNum){
-				for (int i=0; i<qualLen; i++) {
-					if(minQ>quality[i]) {
-						minQ=quality[i];
-					}
-					if(maxQ<quality[i]) {
-						maxQ=quality[i];
-					}
+            for (int i = 0; i < checkLen; ++i) {
+				char base=Base[bam_seqi(seqChar, i)];
+				char qual=qualChar[i] + 33;
+				seq5p += base;
+				
+				if(minQ > qual) {
+					minQ = qual;
+				}
+				if(maxQ < qual) {
+					maxQ = qual;
 				}
 			}
 
-			string head_seq=sequence.substr(0, BCLen);
-			string tail_seq=sequence.substr(seqLen - BCLen);
-			if (seqNum<BCNum){
-				for (int x=0; x < BCLen; x++){
-					if (head_seq[x]=='A'){
-						headA[x]++;
-					}else if(head_seq[x]=='T'){
-						headT[x]++;
-					}
-
-					if (tail_seq[x]=='A'){
-						tailA[x]++;
-					}else if(tail_seq[x]=='T'){
-						tailT[x]++;
-					}
-
-				}
+            for (int i = (seqLen-checkLen); i < seqLen; ++i) {
+				char base=Base[bam_seqi(seqChar, i)];
+				seq3p += base;
 			}
 
-			if (seqNum<ADNum){
-				string head_ADSeq=sequence.substr(0, ADLen);
-				string tail_ADSeq=sequence.substr(seqLen-(ADLen));
-				headSeq.push_back(head_ADSeq);
-				tailSeq.push_back(tail_ADSeq);
-			}
+            seq3p=rev_comp_seq(seq3p);
+            seqs5p.push_back(seq5p);
+            seqs3p.push_back(seq3p);
+            
 		}
-
-		bam_destroy1(bamRecord);
-    	bam_hdr_destroy(bamHeader);
-    	hts_close(bamFile);
-	}
-
-	//base content
-	std::vector<int> headBC;
-	std::vector<int> tailBC;
-	int maxBC=(P2In->ReadNumber)/100;
-	for (int i = 0; i < BCLen; ++i) {
-		if (abs(headA[i]-headT[i])>=maxBC){
-			headBC.push_back(i+1);
-		}
-
-		if (abs(tailA[i]-tailT[i])>=maxBC){
-			tailBC.insert(tailBC.begin(), BCLen-i);
-		}
+        bam_destroy1(bamRecord);
+        bam_hdr_destroy(bamHeader);
+        hts_close(bamFile);
+        return 0;
     }
-	int headDrop=0;
-	 if (!headBC.empty()){
-		if(headBC.front()<=5){
-			headDrop=headBC.front();
-		}
-		for (int x=0; x<headBC.size(); ++x){
-			if ((headBC[x]-headDrop)<=5){
-				headDrop=headBC[x];
-			}
-		}
-	}
 
-	int tailDrop=0;
-	if (!tailBC.empty()){
-		if(tailBC.front()<=5){
-			tailDrop=tailBC.front();
-		}
-		for (int x=0; x<tailBC.size(); ++x){
-			if ((tailBC[x]-tailDrop)<=5){
-				tailDrop=tailBC[x];
-			}
-		}
-	}
-
-	if ((P2In->HeadCrop)<0){
-		P2In->HeadCrop=headDrop;
-	}
-	if ((P2In->TailCrop)<0){
-		P2In->TailCrop=tailDrop;
-	}
-
-	//mean phred quality
-	if (maxQ>0){
+    void Get_qType(){
 		if(minQ >= 33 &&  minQ <= 78  &&  maxQ >= 33 && maxQ <= 127) {
 			qType=33;
 		}
@@ -1204,106 +986,199 @@ int Get_filter_parameter(Para_A24 *P2In){
 		}
 		else if (minQ < 55) {
 			qType=33;
-		}
-		else {
+		} else {
 			qType=64;
 		}
-	}
+		minQ-=qType;
+		maxQ-=qType;
 
-	//search adapter
-	if (!(P2In->AdapterFile).empty() && access((P2In->AdapterFile).c_str(), 0) == 0){
-		string adapter_name=P2In->AdapterFile;
-		FastxReader reader(adapter_name);
-        ks* readObj = nullptr;
-        while ((readObj = reader.read()) != nullptr) {
-			string name = readObj->name;
-			string seq_for = readObj->seq;
-			string seq_rev=rev_comp_seq(seq_for);
-			adapters[name] = {seq_for,seq_rev};
-			cerr <<"INFO: adapter " << name <<" : "<<seq_for<< endl;
-			delete readObj;
-		}
-	} else {
-		string adapter_5p;
-		string adapter_3p;
-		float depth_5p=0;
-		float depth_3p=0;
-		int len_5p=0;
-		int len_3p=0;
-		std::vector<std::pair<std::string, int>> can5pAdapters;
-		std::vector<std::pair<std::string, int>> can3pAdapters;
-
-		cerr << "INFO: searching 5' adapter..."<<endl;
-		adapter_5p=adapterSearch(P2In, headSeq, depth_5p);
-		len_5p=adapter_5p.length();
-		
-		cerr << "INFO: searching 3' adapter..."<<endl;
-		adapter_3p=adapterSearch(P2In, tailSeq, depth_3p);
-		len_3p=adapter_3p.length();
-		
-		cerr <<"INFO: 5' adapter: " << adapter_5p << endl;
-		cerr <<"INFO: 3' adapter: " << adapter_3p << endl;
-
-		cerr <<"INFO: mean depth of 5' adapter: "<<depth_5p<<endl;
-		cerr <<"INFO: mean depth of 3' adapter: "<<depth_3p<<endl;
-
-		// store the adapter to adapters map
-		len_5p=adapter_5p.length();
-		len_3p=adapter_3p.length();
-
-		if(len_5p != 0 || len_3p != 0){
-			if (len_5p >0 && len_3p >0){
-				string rev_3p=rev_comp_seq(adapter_3p);
-				string rev_5p=rev_comp_seq(adapter_5p);
-				if ((adapter_5p == adapter_3p) || (adapter_5p == rev_3p)){
-					adapters["adapter_5-3p"]={adapter_5p, rev_5p};
-				}else{
-					adapters["adapter_5p"]={adapter_5p, rev_5p};
-					adapters["adapter_3p"]={adapter_3p, rev_3p};
-				}
-			}else if(len_5p >0){
-				string rev_5p=rev_comp_seq(adapter_5p);
-				adapters["adapter_5p"]={adapter_5p, rev_5p};
-			}else if(len_3p >0){
-				string rev_3p=rev_comp_seq(adapter_3p);
-				adapters["adapter_3p"]={adapter_3p, rev_3p};
+		if (P2In->MinQ>=0){
+			if (P2In->MinQ >= maxQ){
+				cerr <<"Warning: max base quality score was: "<<maxQ<<endl;
+				cerr <<"INFO: Please reset -q parameter."<<endl;
+				exit(-1);
+			}
+		} else {
+			if (maxQ > 10 && P2In->readType=="clr"){
+				P2In->MinQ=10;
+			}else if (maxQ > 20 && P2In->readType=="hifi"){
+				P2In->MinQ=20;
+			}else if (maxQ > 10 && P2In->readType=="ont"){
+				P2In->MinQ=10;
+			}else{
+				P2In->MinQ=0;
 			}
 		}
-	}
+    }
 
-	//
-	
-	if (!(P2In->ONLYAD)){
-		cerr << "INFO: trim 5' end length: "<<P2In->HeadCrop<<endl;
-		cerr << "INFO: trim 3' end length: "<<P2In->TailCrop<<endl;
-		cerr << "INFO: min output reads length: "<<P2In->MinLen<<endl;
-		if ((P2In->Infq)==1 || (P2In->Infq)==2){
-			cerr << "INFO: min Phred average quality score: "<<(P2In->MinQ)<<endl;
-			//P2In->MinQ=(P2In->MinQ)+qType;
+    void CheckBaseContent(std::vector<std::string> &seqs, string flag){
+        std::vector<std::vector<int>> basesNum(checkLen, std::vector<int>(4,0));
+        char base;
+        for (const std::string& seq : seqs) {
+            for (int i = 0; i < seq.length(); i++){
+                base=seq[i];
+                if (base == 'A' || base=='a'){
+                    basesNum[i][0]++;
+                }else if (base == 'T' || base=='t'){
+                    basesNum[i][1]++;
+                }else if (base == 'G' || base=='g'){
+                    basesNum[i][2]++;
+                }else if (base == 'C' || base=='c'){
+                    basesNum[i][3]++;
+                }
+            }
+        }
+        
+		int maxDiff=(seqNum * P2In->EndBias)/100;
+		int lastDis=1;
+		
+        std::vector<int> canPos;
+		int trimLen=0;
+        for (int i=1; i < checkLen-1; i++){
+			bool leftFlag=false;
+			bool rightFlag=false;
+			int diff;
+			int checkLeftDis=i;
+			int checkRightDis=checkLen-i-1;
+			if (checkLeftDis > 5){
+				checkLeftDis = 5;
+			}
+			if (checkRightDis > 5){
+				checkRightDis = 5;
+			}
+
+			for (int j=0; j <basesNum[i].size(); j++){
+				for (int x=1; x <= checkLeftDis; x++){
+					if (abs(basesNum[i][j] - basesNum[i-x][j]) > maxDiff){
+						leftFlag=true;
+						break;
+					}
+				}
+
+				for (int x=1; x <= checkRightDis; x++){
+					if (abs(basesNum[i+x][j] - basesNum[i][j]) > maxDiff){
+						rightFlag=true;
+						break;
+					}
+				}
+			}
+
+			if (leftFlag && rightFlag){
+				trimLen=i+1;
+			}
+        }
+        //
+        if (flag=="5p"){
+            trim5p=trimLen;
+        }else if (flag=="3p"){
+            trim3p=trimLen;
+        }
+
+    }
+
+    void adapterSearch(std::vector<std::string> &reads, string flag){
+
+		adapterLib[0]="ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT"; // Pacific Biosciences Blunt Adapter
+		adapterLib[1]="ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT";
+		adapterLib[2]="AAAAAAAAAAAAAAAAAATTAACGGAGGAGGAGGA"; // Pacific Biosciences C2 Primer
+		adapterLib[3]="TCCTCCTCCTCCGTTAATTTTTTTTTTTTTTTTTT"; 
+		adapterLib[4]="AATGTACTTCGTTCAGTTACGTATTGCT"; // Ligation
+		adapterLib[5]="AGCAATACGTAACTGAACGAAGTACATT";
+		adapterLib[6]="GCAATACGTAACTGAACGAAGT"; // Ligation
+		adapterLib[7]="ACTTCGTTCAGTTACGTATTGC";
+		adapterLib[8]="GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"; // Rapid
+		adapterLib[9]="TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC";
+		adapterLib[10]="GGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCCT"; // 1D^2
+		adapterLib[11]="AGGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCC";
+		adapterLib[12]="GGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCCAGCAAT"; // 1D^2
+		adapterLib[13]="ATTGCTGGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCC";
+		adapterLib[14]="TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT"; // Ligation(LA) / Native(NA) / Rapid(RA) / Rapid T(RAT) top strand
+		adapterLib[15]="AGCAATACGTAACTGAACGAAGTACAGGAAAAAAAA";
+		adapterLib[16]="GCAATACGTAACTGAACGAAGTACAGG"; // Ligation Adapter bottom strand
+		adapterLib[17]="CCTGTACTTCGTTCAGTTACGTATTGC";
+		adapterLib[18]="ACGTAACTGAACGAAGTACAGG"; // Native Adapter bottom strand
+		adapterLib[19]="CCTGTACTTCGTTCAGTTACGT";
+		adapterLib[20]="CTTGCGGGCGGCGGACTCTCCTCTGAAGATAGAGCGACAGGCAAG"; // cDNA RT Adapter (CRTA)
+		adapterLib[21]="CTTGCCTGTCGCTCTATCTTCAGAGGAGAGTCCGCCGCCCGCAAG";
+
+        //
+		std::unordered_map<int, int> maps;
+        float minSim=P2In->MidSim;
+		
+        for (const auto& ts : reads) {
+            int tsLen=ts.length();
+			for (int i = 0; i < adapterLib.size(); ++i) {
+				string qs=adapterLib[i];
+				int qsLen=qs.length();
+				int minK=static_cast<int>((1-minSim)*qsLen)+1;
+
+				EdlibAlignResult result_for = edlibAlign(qs.c_str(), qsLen, ts.c_str(), tsLen, 
+                            edlibNewAlignConfig(minK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
+                if (result_for.status == EDLIB_STATUS_OK){
+                    int dist=result_for.editDistance;
+                    int length=result_for.alignmentLength;
+                    int mlen=length-dist;
+                    int numAln=result_for.numLocations;
+                    if (numAln>0){
+						maps[i]+=mlen;
+                    }
+                }
+                edlibFreeAlignResult(result_for);
+			}
 		}
-	}
-	
-	return 0;
-}
 
-int GetEditDistance(Para_A24 *P2In, string &query, string &target, 
+		//get max and second index
+		std::vector<std::pair<int, int>> vecMap(maps.begin(), maps.end());
+		std::sort(vecMap.begin(), vecMap.end(), [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+    		return a.second > b.second;
+		});
+
+		string adapter;
+		float meanDep=0;
+		if (!vecMap.empty()) {
+			int maxIndex=vecMap.front().first;
+			adapter=adapterLib[maxIndex];
+			meanDep = static_cast<float>(maps[maxIndex])/(adapter.length());
+		}
+
+        if (flag=="5p"){
+			if (meanDep >= 2*minSim){
+				adapter5p = adapter;
+            	adapterDep5p = meanDep;
+			}else{
+				adapter5p = "";
+            	adapterDep5p = 0;
+			}   
+        }else if (flag=="3p"){
+			if (meanDep >= 2*minSim){
+				adapter3p = adapter;
+            	adapterDep3p = meanDep;
+			}else{
+				adapter3p = "";
+            	adapterDep3p = 0;
+			} 
+        }
+    }
+
+    Para_A24 *P2In;
+    std::string InPath, OutPath;
+    int seqNum, maxSeq, checkLen, minLen, minQ, maxQ;
+    std::vector<std::string> seqs5p, seqs3p;
+};
+
+void GetEditDistance(Para_A24 *P2In, const string &query, string &target, 
+					int &num5p, int &num3p, int &numMid,
                     std::vector<std::vector<int>> &adapterRegions){
 	
-	int midNum=0;
 	float endSim=P2In->EndSim;
 	float midSim=P2In->MidSim;
 	
-	int qLen=query.length();
-	int tLen=target.length();
+	int qLen=query.length(); // adapter length
+	int tLen=target.length(); // reads length
 
-	int end5Len=(P2In->EndLen) - (P2In->HeadCrop);
-	int end3Len=(P2In->EndLen) - (P2In->TailCrop);
-	if (end5Len<0){
-		end5Len=0;
-	}
-	if (end3Len<0){
-		end3Len=0;
-	}
+	int end5Len=(P2In->EndLen);
+	int end3Len=(P2In->EndLen);
+
 	int extraLen=(P2In->ExtraLen);
 
 	int maxK=qLen-(P2In->MidMatchLen)+1;
@@ -1323,14 +1198,14 @@ int GetEditDistance(Para_A24 *P2In, string &query, string &target,
 				for (int i=0; i<numAln; i++){
 					int ts=result.startLocations[i] + end5Len;
 					int te=result.endLocations[i] + end5Len + 1;
-					float sim = static_cast<float>(mlen) / length;
+					float sim = static_cast<float>(mlen) / qLen;
 					
 					if (sim >= midSim){
 						ts=ts - extraLen;
 						te=te + extraLen;
 						if (ts<0){ts=0;}
 						if (te>tLen){te=tLen;}
-						midNum++;
+						numMid++;
 						adapterRegions.push_back({ts, te});
 					}
 				}
@@ -1344,14 +1219,12 @@ int GetEditDistance(Para_A24 *P2In, string &query, string &target,
 	if (checkLen > tLen){
 		checkLen = tLen;
 	}
-	int ts5Len=checkLen - (P2In->HeadCrop);
-	int ts3Len=checkLen - (P2In->TailCrop);
+	maxK = qLen-(P2In->EndMatchLen)+1;
 
 	//5' end
-	if (ts5Len >= 5){
-		maxK = ts5Len -5 + 1;
-		string ts5 = target.substr(0, ts5Len);
-		EdlibAlignResult result_ts5 = edlibAlign(query.c_str(), qLen, ts5.c_str(), ts5Len, 
+	if (checkLen >= 5){
+		string ts5 = target.substr(0, checkLen);
+		EdlibAlignResult result_ts5 = edlibAlign(query.c_str(), qLen, ts5.c_str(), checkLen, 
 					edlibNewAlignConfig(maxK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
 		if (result_ts5.status == EDLIB_STATUS_OK){
 			int dist=result_ts5.editDistance;
@@ -1362,9 +1235,9 @@ int GetEditDistance(Para_A24 *P2In, string &query, string &target,
 				for (int i=0; i<numAln; i++){
 					int ts=result_ts5.startLocations[i];
 					int te=result_ts5.endLocations[i]+1;
-					float sim1 = static_cast<float>(mlen) / te;
-					float sim2 = static_cast<float>(mlen) / length;
-					if (sim1 >= endSim || sim2 >= endSim){
+					float sim = static_cast<float>(mlen) / qLen;
+					if (sim >= endSim){
+						num5p++;
 						adapterRegions.push_back({0, te});
 					}
 				}
@@ -1374,10 +1247,9 @@ int GetEditDistance(Para_A24 *P2In, string &query, string &target,
 	}
 
 	//3' end
-	if (ts3Len >= 5){
-		maxK = ts3Len -5 + 1;
-		string ts3=target.substr(tLen-ts3Len);
-		EdlibAlignResult result_ts3 = edlibAlign(query.c_str(), qLen, ts3.c_str(), ts3Len, 
+	if (checkLen >= 5){
+		string ts3=target.substr(tLen-checkLen);
+		EdlibAlignResult result_ts3 = edlibAlign(query.c_str(), qLen, ts3.c_str(), checkLen, 
 					edlibNewAlignConfig(maxK, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
 		if (result_ts3.status == EDLIB_STATUS_OK){
 			int dist=result_ts3.editDistance;
@@ -1386,54 +1258,78 @@ int GetEditDistance(Para_A24 *P2In, string &query, string &target,
 			int mlen=length - dist;
 			if (mlen >= (P2In->EndMatchLen)){
 				for (int i=0; i<numAln; i++){
-					int ts=result_ts3.startLocations[i] + tLen - ts3Len;
-					int te=result_ts3.endLocations[i]+1 + tLen - ts3Len;
-					float sim1 = static_cast<float>(mlen) / (tLen-ts);
-					float sim2 = static_cast<float>(mlen) / length;
-					if (sim1 >= endSim || sim2 >= endSim){
+					int ts=result_ts3.startLocations[i] + tLen - checkLen;
+					int te=result_ts3.endLocations[i]+1 + tLen - checkLen;
+					float sim = static_cast<float>(mlen) / qLen;
+					if (sim >= endSim){
+						num3p++;
 						adapterRegions.push_back({ts, tLen});
 					}
 				}
-				
 			}
 		}
 		edlibFreeAlignResult(result_ts3);
 	}
-	return midNum;
 }
 
+std::unordered_set<std::string> adapters;
 void adapterMap(Para_A24 * P2In, string &rawSeq, int &rawLen,
 				std::vector<std::vector<int>> &keepRegions,
-                std::array<std::atomic<uint64_t>, 16> &DropInfo){
+                std::vector<uint64_t> &DropInfo){
 
+	int num5p=0;
+	int num3p=0;
+	int numMid=0;
 	std::vector<std::vector<int>> adapterRegions;
-	int mid_for;
-	int mid_rev;
-	//
-    for (const auto& pair : adapters) {
-        string qsFor=pair.second.first;
-        string qsRev=pair.second.second;
-		mid_for = GetEditDistance(P2In, qsFor, rawSeq, adapterRegions);
-		mid_rev = GetEditDistance(P2In, qsRev, rawSeq, adapterRegions);
-    }
 
-	int midNum=0;
-	if (mid_for > 0 || mid_rev > 0){
-		midNum=1;
-	}
-	DropInfo[14]+=midNum;
-
-	if (midNum>0 && P2In->discard){
-		DropInfo[15]+=rawLen;
-	} else {
-		if (adapterRegions.size() >= 2) {
-			std::sort(adapterRegions.begin(), adapterRegions.end(), [](const std::vector<int>& a, const std::vector<int>& b) {
-				if (a[0] == b[0]) {
-					return a[1] < b[1];
-				}
-				return a[0] < b[0];
-			});
+	if (P2In->HeadTrim>0){
+		if (P2In->HeadTrim >= rawLen){
+			adapterRegions.push_back({0, rawLen});
+		}else{
+			adapterRegions.push_back({0, P2In->HeadTrim});
 		}
+	}
+
+	if ((P2In->TailTrim)>0){
+		if (P2In->TailTrim >= rawLen){
+			adapterRegions.push_back({0, rawLen});
+		}else{
+			adapterRegions.push_back({rawLen-(P2In->TailTrim), rawLen});
+		}
+	}
+	
+	for (const std::string& adapter : adapters) {
+		GetEditDistance(P2In, adapter, rawSeq, num5p, num3p, numMid, adapterRegions);
+	}
+
+	if (numMid>0 && num5p>0 && num3p>0){
+		DropInfo[2]++;
+	} else if (numMid>0 && num5p>0 && num3p==0){
+		DropInfo[3]++;
+	} else if (numMid>0 && num5p==0 && num3p>0){
+		DropInfo[4]++;
+	} else if (numMid==0 && num5p>0 && num3p>0){
+		DropInfo[5]++;
+	} else if (numMid>0 && num5p==0 && num3p==0){
+		DropInfo[6]++;
+	} else if (numMid==0 && num5p>0 && num3p==0){
+		DropInfo[7]++;
+	} else if (numMid==0 && num5p==0 && num3p>0){
+		DropInfo[8]++;
+	} else if (numMid==0 && num5p==0 && num3p==0){
+		DropInfo[9]++;
+	}
+	
+	if (numMid>0 && P2In->discard){
+		DropInfo[10]+=rawLen;
+	} else {
+		
+		std::sort(adapterRegions.begin(), adapterRegions.end(), [](const std::vector<int>& a, const std::vector<int>& b) {
+			if (a[0] == b[0]) {
+				return a[1] < b[1];
+			}
+			return a[0] < b[0];
+		});
 
 		std::vector<std::vector<int>> mergedRegions;
 		for (const auto& region : adapterRegions) {
@@ -1444,39 +1340,45 @@ void adapterMap(Para_A24 * P2In, string &rawSeq, int &rawLen,
 			}
 		}
 
-		int keep_len = 0;
+
+		int keepLen = 0;
+		int dropLen = 0;
 		int currentStart = 0;
 		if (mergedRegions.size()>=1){
-			DropInfo[8]++;
 			for (const auto& region : mergedRegions) {
-				DropInfo[9]+=(region[1]-region[0]);
+				dropLen = region[1]-region[0];
+				DropInfo[10] += dropLen;
+				if (dropLen == rawLen){
+					DropInfo[11]++;
+				}
+
 				if (region[0] > currentStart) {
-					keep_len=region[0] - currentStart;
-					if (keep_len >= (P2In->MinLen) && keep_len <= (P2In->MaxLen)){
-						keepRegions.push_back({currentStart, keep_len});
+					keepLen=region[0] - currentStart;
+					if (keepLen >= (P2In->MinLen) && keepLen <= (P2In->MaxLen)){
+						keepRegions.push_back({currentStart, keepLen});
 					}else{
-						DropInfo[12]++;
-						DropInfo[13]+=keep_len;
+						DropInfo[11]++;
+						DropInfo[12]+=keepLen;
 					}
 				}
 				currentStart = region[1];
 			}
 
 			if (currentStart < rawLen) {
-				keep_len=static_cast<int>(rawLen) - currentStart;
-				if (keep_len >= (P2In->MinLen) && keep_len <= (P2In->MaxLen)){
-					keepRegions.push_back({currentStart, keep_len});
+				keepLen=static_cast<int>(rawLen) - currentStart;
+				if (keepLen >= (P2In->MinLen) && keepLen <= (P2In->MaxLen)){
+					keepRegions.push_back({currentStart, keepLen});
 				}else{
-					DropInfo[12]++;
-					DropInfo[13]+=keep_len;
+					DropInfo[11]++;
+					DropInfo[12]+=keepLen;
 				}
 			}
 		}else{
 			if (rawLen >= (P2In->MinLen) && rawLen <= (P2In->MaxLen)){
 				keepRegions.push_back({currentStart, rawLen});
 			}else{
-				DropInfo[12]++;
-				DropInfo[13]+=rawLen;
+				DropInfo[11]++;
+				DropInfo[12]+=rawLen;
 			}
 		}
 	}
@@ -1484,52 +1386,101 @@ void adapterMap(Para_A24 * P2In, string &rawSeq, int &rawLen,
 
 double CalcAvgQuality(const string &seq, const string &qual, 
                       std::vector<std::vector<uint64_t>> &baseQual,
-                      std::vector<std::vector<uint64_t>> &baseCounts,
-					  std::vector<int> &rawDiffQualBases) {
-    int seqLen = seq.length();
-    int qualLen = qual.length();
+                      std::vector<std::vector<uint64_t>> &baseCounts) {
+    uint64_t seqLen = seq.length();
+    uint64_t qualLen = qual.length();
     if (seqLen == 0 || qualLen == 0 || seqLen != qualLen) {
         return 0.0;
     }
 
-	if (baseQual.size() < seqLen || baseCounts.size() < seqLen){
-		baseQual.resize(seqLen, std::vector<uint64_t>(5));
-		baseCounts.resize(seqLen, std::vector<uint64_t>(5));
+	int vectorSize=int(seqLen/100)+1;
+	if (baseQual.size() < vectorSize || baseCounts.size() < vectorSize){
+		baseQual.resize(vectorSize, std::vector<uint64_t>(5));
+		baseCounts.resize(vectorSize, std::vector<uint64_t>(5));
 	}
 
 	uint64_t sumQ = 0;
     int qValue = 0;
 	char base;
+	int index=0;
 
     for (uint64_t i = 0; i < seqLen; i++) {
         qValue = qual[i] - qType;
         sumQ += qValue;
 		base = seq[i];
-		rawDiffQualBases[qValue]++;
+		index =int(i/100);
+
+		if (base== 'A' || base=='a'){
+			baseCounts[index][0]++;
+			baseQual[index][0]+=qValue;
+		}else if (base== 'T' || base=='t'){
+			baseCounts[index][1]++;
+			baseQual[index][1]+=qValue;
+		} else if (base== 'G' || base=='g'){
+			baseCounts[index][2]++;
+			baseQual[index][2]+=qValue;
+		} else if (base== 'C' || base=='c'){
+			baseCounts[index][3]++;
+			baseQual[index][3]+=qValue;
+		}
+		baseCounts[index][4]++;
+		baseQual[index][4]+=qValue;
+    }
+    return static_cast<double>(sumQ) / seqLen;
+}
+
+void Get_5p_base_qual(const string &seq, const string &qual, 
+                      std::vector<std::vector<uint64_t>> &baseQual,
+                      std::vector<std::vector<uint64_t>> &baseCounts) {
+    uint64_t seqLen = seq.length();
+    uint64_t qualLen = qual.length();
+    if (seqLen == 0 || qualLen == 0 || seqLen != qualLen) {
+        return;
+    }
+
+	int length=150;
+	if (length>seqLen) {
+		length=seqLen;
+	}
+
+	if (baseQual.size() < length || baseCounts.size() < length){
+		baseQual.resize(length, std::vector<uint64_t>(5));
+		baseCounts.resize(length, std::vector<uint64_t>(5));
+	}
+
+	string headSeq=seq.substr(0,length);
+	string headQual=qual.substr(0,length);
+
+	int qValue = 0;
+	char base;
+
+    for (uint64_t i = 0; i < length; i++) {
+		qValue = headQual[i] - qType;
+		base = headSeq[i];
+
 		if (base== 'A' || base=='a'){
 			baseCounts[i][0]++;
 			baseQual[i][0]+=qValue;
-		}else if (base== 'G' || base=='g'){
+		}else if (base== 'T' || base=='t'){
 			baseCounts[i][1]++;
 			baseQual[i][1]+=qValue;
-		} else if (base== 'C' || base=='c'){
+		} else if (base== 'G' || base=='g'){
 			baseCounts[i][2]++;
 			baseQual[i][2]+=qValue;
-		} else if (base== 'T' || base=='t'){
+		} else if (base== 'C' || base=='c'){
 			baseCounts[i][3]++;
 			baseQual[i][3]+=qValue;
 		}
 		baseCounts[i][4]++;
 		baseQual[i][4]+=qValue;
     }
-    return static_cast<double>(sumQ) / seqLen;
 }
 
-void Get_tail_base_qual(const string &seq, const string &qual, 
+void Get_3p_base_qual(const string &seq, const string &qual, 
                       std::vector<std::vector<uint64_t>> &baseQual,
                       std::vector<std::vector<uint64_t>> &baseCounts) {
-    int seqLen = seq.length();
-    int qualLen = qual.length();
+    uint64_t seqLen = seq.length();
+    uint64_t qualLen = qual.length();
     if (seqLen == 0 || qualLen == 0 || seqLen != qualLen) {
         return;
     }
@@ -1551,7 +1502,7 @@ void Get_tail_base_qual(const string &seq, const string &qual,
 	int qValue = 0;
 	char base;
 
-    for (uint64_t i = 0; i < length; i++) {
+    for (int i = 0; i < length; i++) {
 		j=length-i-1;
 		qValue = tailQual[j] - qType;
 		base = tailSeq[j];
@@ -1559,13 +1510,13 @@ void Get_tail_base_qual(const string &seq, const string &qual,
 		if (base== 'A' || base=='a'){
 			baseCounts[i][0]++;
 			baseQual[i][0]+=qValue;
-		}else if (base== 'G' || base=='g'){
+		}else if (base== 'T' || base=='t'){
 			baseCounts[i][1]++;
 			baseQual[i][1]+=qValue;
-		} else if (base== 'C' || base=='c'){
+		} else if (base== 'G' || base=='g'){
 			baseCounts[i][2]++;
 			baseQual[i][2]+=qValue;
-		} else if (base== 'T' || base=='t'){
+		} else if (base== 'C' || base=='c'){
 			baseCounts[i][3]++;
 			baseQual[i][3]+=qValue;
 		}
@@ -1576,33 +1527,73 @@ void Get_tail_base_qual(const string &seq, const string &qual,
 
 void Get_base_counts(const string &seq, 
                     std::vector<std::vector<uint64_t>> &baseCounts){
-    int seqLen = seq.length();
+    uint64_t seqLen = seq.length();
     if (seqLen == 0){
         return;
     }
 
-	if (baseCounts.size() < seqLen){
-		baseCounts.resize(seqLen, std::vector<uint64_t>(5));
+	int vectorSize=int(seqLen/100)+1;
+	if (baseCounts.size() < vectorSize){
+		baseCounts.resize(vectorSize, std::vector<uint64_t>(5));
 	}
 
-    for (int i = 0; i < seqLen; i++){
-		char base = seq[i];
+	char base;
+	int index=0;
+    for (uint64_t i = 0; i < seqLen; i++){
+		base = seq[i];
+		index=int(i/100);
+
+		if (base== 'A' || base=='a'){
+			baseCounts[index][0]++;
+		}else if (base== 'T' || base=='t'){
+			baseCounts[index][1]++;
+		} else if (base== 'G' || base=='g'){
+			baseCounts[index][2]++;
+		} else if (base== 'C' || base=='c'){
+			baseCounts[index][3]++;
+		}
+		baseCounts[index][4]++;
+    }
+}
+
+void Get_5p_base_counts(const string &seq, 
+                    std::vector<std::vector<uint64_t>> &baseCounts){
+    uint64_t seqLen = seq.length();
+    if (seqLen == 0){
+        return;
+    }
+
+	int length=150;
+	if (length>seqLen) {
+		length=seqLen;
+	}
+	if (baseCounts.size() < length){
+		baseCounts.resize(length, std::vector<uint64_t>(5));
+	}
+
+	string headSeq=seq.substr(0, length);
+
+	char base;
+
+    for (int i = 0; i < length; i++){
+		base = headSeq[i];
+
 		if (base== 'A' || base=='a'){
 			baseCounts[i][0]++;
-		}else if (base== 'G' || base=='g'){
+		}else if (base== 'T' || base=='t'){
 			baseCounts[i][1]++;
-		} else if (base== 'C' || base=='c'){
+		} else if (base== 'G' || base=='G'){
 			baseCounts[i][2]++;
-		} else if (base== 'T' || base=='t'){
+		} else if (base== 'C' || base=='c'){
 			baseCounts[i][3]++;
 		}
 		baseCounts[i][4]++;
     }
 }
 
-void Get_tail_base_counts(const string &seq, 
+void Get_3p_base_counts(const string &seq, 
                     std::vector<std::vector<uint64_t>> &baseCounts){
-    int seqLen = seq.length();
+    uint64_t seqLen = seq.length();
     if (seqLen == 0){
         return;
     }
@@ -1626,27 +1617,47 @@ void Get_tail_base_counts(const string &seq,
 
 		if (base== 'A' || base=='a'){
 			baseCounts[i][0]++;
-		}else if (base== 'G' || base=='g'){
+		}else if (base== 'T' || base=='T'){
 			baseCounts[i][1]++;
-		} else if (base== 'C' || base=='c'){
+		} else if (base== 'G' || base=='g'){
 			baseCounts[i][2]++;
-		} else if (base== 'T' || base=='t'){
+		} else if (base== 'C' || base=='c'){
 			baseCounts[i][3]++;
 		}
 		baseCounts[i][4]++;
     }
 }
 
+std::string newSeqName(const std::string& rawName, int number) {
+    std::string newName;
+	std::string addNum=":" + std::to_string(number);
+	
+    bool foundEmpty = false;
+
+    for (char c : rawName) {
+        if (std::isspace(c) && !(foundEmpty)) {
+			newName += addNum;
+			newName += c;
+            foundEmpty = true;
+		}else{
+			newName += c;
+		}
+    }
+
+    if (!foundEmpty) {
+        newName += addNum;
+    }
+
+    return newName;
+}
+
 class TGSFilterTask {
 public:
     TGSFilterTask(Para_A24 *P2In)
         : P2In(P2In), 
-		  inputFastx_queue(), 
-          inputBam_queue(), 
+		  input_queue(), 
 		  output_queue(), 
 		  outputGz_queue(),
-          headCrop(P2In->HeadCrop),
-		  totalCrop((P2In->HeadCrop) + (P2In->TailCrop)),
           readNum(0), 
 		  filterNum(0), 
 		  read_done(false), 
@@ -1655,39 +1666,46 @@ public:
 		  writeNum(0), 
 		  inQueueSize(0), 
 		  outQueueSize(0), 
-		  DropInfo(),
           seqLens(),
 		  rawBases(0),
 		  cleanBases(0), 
 		  rawLens(), 
 		  cleanLens(),
 		  worker_count(P2In->n_thread),
-		  rawDiffQualBases(P2In->n_thread, std::vector<int>(256,0)),
-		  rawDiffQualReads(P2In->n_thread, std::vector<int>(256,0)),
-		  cleanDiffQualBases(P2In->n_thread, std::vector<int>(256,0)),
-		  cleanDiffQualReads(P2In->n_thread, std::vector<int>(256,0)),
+		  DropInfo(P2In->n_thread, std::vector<uint64_t>(13,0)),
+		  rawDiffQualReadsBases(P2In->n_thread, std::vector<uint64_t>(256,0)),
+		  cleanDiffQualReadsBases(P2In->n_thread, std::vector<uint64_t>(256,0)),
           rawBaseQual(P2In->n_thread),
 		  rawBaseCounts(P2In->n_thread),
+		  raw5pBaseQual(P2In->n_thread),
+		  raw5pBaseCounts(P2In->n_thread),
 		  raw3pBaseQual(P2In->n_thread),
 		  raw3pBaseCounts(P2In->n_thread),
 	  	  cleanBaseQual(P2In->n_thread),
 	  	  cleanBaseCounts(P2In->n_thread),
+		  clean5pBaseQual(P2In->n_thread),
+		  clean5pBaseCounts(P2In->n_thread),
 		  clean3pBaseQual(P2In->n_thread),
 		  clean3pBaseCounts(P2In->n_thread) {}
 
-    std::array<std::atomic<uint64_t>, 16> DropInfo;
-    std::unordered_map<std::string, int> seqLens;
-
+	std::unordered_map<std::string, int> seqLens;
 	uint64_t rawBases, cleanBases;
 	std::vector<int> rawLens, cleanLens;
-
-	std::vector<std::vector<int>> rawDiffQualBases, rawDiffQualReads;
-	std::vector<std::vector<int>> cleanDiffQualBases, cleanDiffQualReads;
 	
-	std::vector<std::vector<std::vector<uint64_t>>> rawBaseQual, rawBaseCounts, raw3pBaseQual, raw3pBaseCounts;
-	std::vector<std::vector<std::vector<uint64_t>>> cleanBaseQual, cleanBaseCounts, clean3pBaseQual, clean3pBaseCounts;
+	std::vector<std::vector<uint64_t>> DropInfo;
+	
+	std::vector<std::vector<uint64_t>> rawDiffQualReadsBases, cleanDiffQualReadsBases;
+
+	std::vector<std::vector<std::vector<uint64_t>>> rawBaseQual, rawBaseCounts;
+	std::vector<std::vector<std::vector<uint64_t>>> raw5pBaseQual, raw5pBaseCounts;
+	std::vector<std::vector<std::vector<uint64_t>>> raw3pBaseQual, raw3pBaseCounts;
+
+	std::vector<std::vector<std::vector<uint64_t>>> cleanBaseQual, cleanBaseCounts;
+	std::vector<std::vector<std::vector<uint64_t>>> clean5pBaseQual, clean5pBaseCounts;
+	std::vector<std::vector<std::vector<uint64_t>>> clean3pBaseQual, clean3pBaseCounts;
 
     void start() {
+
 		std::vector<std::thread> read_threads; // read
 		if ((P2In->Infq)==2){
 			read_threads.emplace_back(&TGSFilterTask::read_bam, this);
@@ -1720,38 +1738,29 @@ public:
 		}
 	}
 
-
 private:
     int read_fastx() {
 		//
 		string InPath = P2In->InFile;
 		FastxReader reader(InPath);
-        ks* readObj = nullptr;
-        while ((readObj = reader.read()) != nullptr) {
-			string name = readObj->name;
-			string seq = readObj->seq;
-			string qual = readObj->qual;
+        kseq* ks = nullptr;
+        while ((ks = reader.read()) != nullptr) {
+			string name = ks->name;
+			string seq = ks->seq;
+			string qual = ks->qual;
 			int seqLen = seq.length();
 			rawBases += seqLen;
-			delete readObj;
-			
-			DropInfo[0]++;
-			DropInfo[1] += seqLen;
+			delete ks;
 
 			rawLens.push_back(seqLen);
 
-			int checkLen=seqLen - totalCrop;
-            if (checkLen >= (P2In->MinLen) && checkLen <= (P2In->MaxLen)){
-				inputFastx_queue.enqueue(std::make_tuple(name, seq, qual));
-				inQueueSize++;
-				readNum++;
-				if (inQueueSize >= 2 * worker_count){
-					this_thread::sleep_for(chrono::milliseconds(1));
-				}
-            } else {
-				DropInfo[4]++;
-				DropInfo[5] += seqLen ;
-			}  
+			input_queue.enqueue(std::make_tuple(name, seq, qual));
+			inQueueSize++;
+			readNum++;
+			if (inQueueSize >= 2 * worker_count){
+				this_thread::sleep_for(chrono::milliseconds(1));
+			}
+            
         }
         read_done = true;
         return 0;
@@ -1771,25 +1780,29 @@ private:
 
         while (sam_read1(bamFile, bamHeader, bamRecord) >= 0) {
 			string name = bam_get_qname(bamRecord);
-			uint8_t *seq = bam_get_seq(bamRecord);
-			uint8_t *qual = bam_get_qual(bamRecord);
+
+			uint8_t *seqChar = bam_get_seq(bamRecord);
+			uint8_t *qualChar = bam_get_qual(bamRecord);
 
 			int seqLen = bamRecord->core.l_qseq;
 			rawBases += seqLen;
 			rawLens.push_back(seqLen);
 
-			int checkLen=seqLen - totalCrop;
+			string seq;
+			string qual;
 
-			if (checkLen >= (P2In->MinLen) && checkLen <= (P2In->MaxLen)){
-				inputBam_queue.enqueue(std::make_tuple(name, seq, qual, seqLen));
-				inQueueSize++;
-				readNum++;
-				if (inQueueSize >= 2 * worker_count){
-					this_thread::sleep_for(chrono::milliseconds(1));
-				}
-			}else{
-				DropInfo[4]++;
-				DropInfo[5] += seqLen ;
+			for (int i = 0; i < seqLen; ++i) {
+				char b = Base[bam_seqi(seqChar, i)];
+				char q = qualChar[i] + 33;
+				seq += b;
+				qual += q;
+			}
+
+			input_queue.enqueue(std::make_tuple(name, seq, qual));
+			inQueueSize++;
+			readNum++;
+			if (inQueueSize >= 2 * worker_count){
+				this_thread::sleep_for(chrono::milliseconds(1));
 			}
 		}
         read_done = true;
@@ -1807,131 +1820,110 @@ private:
             string rawQual;
 			int rawSeqLen = 0;
 			int rawQualLen=0;
-			if ((P2In->Infq)==2){
-				std::tuple<std::string, uint8_t*, uint8_t*, int> info;
-				if (inputBam_queue.try_dequeue(info)) {
-					inQueueSize--;
-					rawName = std::get<0>(info);
-					uint8_t* seqChar = std::get<1>(info);
-					uint8_t* qualChar = std::get<2>(info);
-					rawSeqLen = std::get<3>(info);
-					rawQualLen = rawSeqLen;
-					for (int i = 0; i < rawSeqLen; ++i) {
-						char b = Base[bam_seqi(&seqChar[i], 0)];
-						char q = qualChar[i] + 33;
-						rawSeq += b;
-						rawQual += q;
-					}
-				} else {
-					this_thread::sleep_for(chrono::milliseconds(1));
-				}
-			} else if ((P2In->Infq)==1 || (P2In->Infq)==0){
-				std::tuple<std::string, std::string, std::string> info;
-				if (inputFastx_queue.try_dequeue(info)) {
-					inQueueSize--;
-					rawName = std::get<0>(info);
-					rawSeq = std::get<1>(info);
-					rawQual = std::get<2>(info);
-					rawSeqLen = rawSeq.length();
-					rawQualLen = rawQual.length();
-				} else {
-					this_thread::sleep_for(chrono::milliseconds(1));
-				}
+			
+			std::tuple<std::string, std::string, std::string> info;
+			if (input_queue.try_dequeue(info)) {
+				inQueueSize--;
+				rawName = std::get<0>(info);
+				rawSeq = std::get<1>(info);
+				rawQual = std::get<2>(info);
+				rawSeqLen = rawSeq.length();
+				rawQualLen = rawQual.length();
+			} else {
+				this_thread::sleep_for(chrono::milliseconds(1));
 			}
 			
 			if (rawSeqLen > 0){
 				if (rawQualLen > 0){
-					double avgQuality;
-					avgQuality = CalcAvgQuality(rawSeq, rawQual, rawBaseQual[tid], rawBaseCounts[tid], rawDiffQualBases[tid]);
-					rawDiffQualReads[tid][int(avgQuality)]++;
-					Get_tail_base_qual(rawSeq, rawQual, raw3pBaseQual[tid], raw3pBaseCounts[tid]);
-					if (avgQuality < (P2In->MinQ)){
-						DropInfo[10]++;
-						DropInfo[11]+= rawSeqLen;
+					double rawQuality;
+					rawQuality = CalcAvgQuality(rawSeq, rawQual, rawBaseQual[tid], rawBaseCounts[tid]);
+					rawDiffQualReadsBases[tid][int(rawQuality)]+=rawSeqLen;
+					Get_5p_base_qual(rawSeq, rawQual, raw5pBaseQual[tid], raw5pBaseCounts[tid]);
+					Get_3p_base_qual(rawSeq, rawQual, raw3pBaseQual[tid], raw3pBaseCounts[tid]);
+					if ((rawQuality < (P2In->MinQ)) || (rawQuality > (P2In->MaxQ))){
+						DropInfo[tid][0]++;
+						DropInfo[tid][1]+=rawSeqLen;
+						filterNum++;
 						continue;
 					}
-					rawSeq = rawSeq.substr(headCrop, rawSeqLen - totalCrop);
-                    rawQual = rawQual.substr(headCrop, rawQualLen - totalCrop);
-				    rawSeqLen = rawSeq.length();
-				    rawQualLen = rawQual.length();
 				} else {
                     Get_base_counts(rawSeq, rawBaseCounts[tid]);
-					Get_tail_base_counts(rawSeq, raw3pBaseCounts[tid]);
-				    rawSeq = rawSeq.substr(headCrop, rawSeqLen - totalCrop);
-				    rawSeqLen = rawSeq.length();
+					Get_5p_base_counts(rawSeq, raw5pBaseCounts[tid]);
+					Get_3p_base_counts(rawSeq, raw3pBaseCounts[tid]);
                 }
 
 				std::vector<std::vector<int>> keepRegions;
-				adapterMap(P2In, rawSeq, rawSeqLen, keepRegions, DropInfo);
+				adapterMap(P2In, rawSeq, rawSeqLen, keepRegions, DropInfo[tid]);
 
-				string name;
-				string seq;
-                string qual;
-				string out;
+				string cleanName;
+				string cleanSeq;
+                string cleanQual;
+				string cleanOut;
+				int cleanSeqLen;
+				int start;
 				
 				int passNum=0;
 
 				if (keepRegions.size()>0){
 					for (const auto& region : keepRegions) {
 						passNum++;
-						int start = region[0];
-						int seqLen = region[1];
-						seq = rawSeq.substr(start,seqLen);
+						start = region[0];
+						cleanSeqLen = region[1];
+						cleanSeq = rawSeq.substr(start,cleanSeqLen);
 
                         if (rawQualLen > 0){
-                            qual=rawQual.substr(start,seqLen);
-							double avgQuality;
-                            avgQuality = CalcAvgQuality(seq, qual, cleanBaseQual[tid], cleanBaseCounts[tid], cleanDiffQualBases[tid]);
-							cleanDiffQualReads[tid][int(avgQuality)]++;
-							Get_tail_base_qual(seq, qual, clean3pBaseQual[tid], clean3pBaseCounts[tid]);
+                            cleanQual=rawQual.substr(start,cleanSeqLen);
+							double cleanQuality;
+                            cleanQuality = CalcAvgQuality(cleanSeq, cleanQual, cleanBaseQual[tid], cleanBaseCounts[tid]);
+							cleanDiffQualReadsBases[tid][int(cleanQuality)]+=cleanSeqLen;
+							Get_5p_base_qual(cleanSeq, cleanQual, clean5pBaseQual[tid], clean5pBaseCounts[tid]);
+							Get_3p_base_qual(cleanSeq, cleanQual, clean3pBaseQual[tid], clean3pBaseCounts[tid]);
                         }else{
-                            Get_base_counts(seq, cleanBaseCounts[tid]);
-							Get_tail_base_counts(seq, clean3pBaseCounts[tid]);
+                            Get_base_counts(cleanSeq, cleanBaseCounts[tid]);
+							Get_5p_base_counts(cleanSeq, clean5pBaseCounts[tid]);
+							Get_3p_base_counts(cleanSeq, clean3pBaseCounts[tid]);
                         }
 
                         //
-						DropInfo[2]++;
-						DropInfo[3]+=seqLen;
-
 						outNum++;
 
 						if (passNum>=2){
-							name = rawName + ":" + std::to_string(passNum);
+							cleanName = newSeqName(rawName, passNum);
 						}else{
-							name=rawName;
+							cleanName=rawName;
 						}
 
 						if ((P2In->Outfq)==1){
-							out = "@" + name +"\n" + seq + "\n+\n" + qual + "\n";
+							cleanOut = "@" + cleanName +"\n" + cleanSeq + "\n+\n" + cleanQual + "\n";
 							if (P2In->OUTGZ && !(P2In->Downsample)){
 								uint8_t *ComData;
 								size_t ComSize;
 								DeflateCompress GZData;
-								if (GZData.compressData(out.c_str(), ComData, ComSize)) {
-									outputGz_queue.enqueue(std::make_tuple(ComData, ComSize, seqLen));
+								if (GZData.compressData(cleanOut.c_str(), ComData, ComSize)) {
+									outputGz_queue.enqueue(std::make_tuple(ComData, ComSize, cleanSeqLen));
 									outQueueSize++;
 								} else {
 									free(ComData);
 								}
 							} else{
-								output_queue.enqueue(std::make_tuple(out, name, seqLen));
+								output_queue.enqueue(std::make_tuple(cleanOut, cleanName, cleanSeqLen));
 								outQueueSize++;
 
 							}
 						} else if((P2In->Outfq)==0){
-							out = ">" + name +"\n" + seq + "\n";
+							cleanOut = ">" + cleanName +"\n" + cleanSeq + "\n";
 							if (P2In->OUTGZ && !(P2In->Downsample)){
 								uint8_t *ComData;
 								size_t ComSize;
 								DeflateCompress GZData;
-								if (GZData.compressData(out.c_str(), ComData, ComSize)) {
-									outputGz_queue.enqueue(std::make_tuple(ComData, ComSize, seqLen));
+								if (GZData.compressData(cleanOut.c_str(), ComData, ComSize)) {
+									outputGz_queue.enqueue(std::make_tuple(ComData, ComSize, cleanSeqLen));
 									outQueueSize++;
 								} else {
 									free(ComData);
 								}
 							} else {
-								output_queue.enqueue(std::make_tuple(out, name, seqLen));
+								output_queue.enqueue(std::make_tuple(cleanOut, cleanName, cleanSeqLen));
 								outQueueSize++;
 							}
 						}
@@ -2028,18 +2020,10 @@ private:
 		}
 	}
 
-	void write_stdout() {
-        
-    }
-
     Para_A24 *P2In;
-    moodycamel::ConcurrentQueue<std::tuple<std::string, std::string, std::string>> inputFastx_queue;
-    moodycamel::ConcurrentQueue<std::tuple<std::string, uint8_t*, uint8_t*, int>> inputBam_queue;
-	moodycamel::ConcurrentQueue<std::tuple<std::string, std::string, int>> output_queue;
+    moodycamel::ConcurrentQueue<std::tuple<std::string, std::string, std::string>> input_queue;
+	moodycamel::ConcurrentQueue<std::tuple<std::string, std::string, uint64_t>> output_queue;
     moodycamel::ConcurrentQueue<std::tuple<uint8_t*, size_t, int>> outputGz_queue;
-
-    int headCrop;
-    int totalCrop;
 
     std::atomic<bool> read_done;
 	std::atomic<bool> filter_done;
@@ -2062,11 +2046,9 @@ public:
 		  worker_count(P2In->n_thread), 
 		  totalSize(0),
 		  seqNames(), 
-		  inputFastx_queue(), 
-		  inputBam_queue(), 
+		  input_queue(), 
 		  output_queue(), 
 		  outputGz_queue(),
-          OutInfo(), 
 		  outNum(0), 
 		  writeNum(0), 
 		  readNum(0), 
@@ -2075,21 +2057,25 @@ public:
 		  filter_done(false),
 		  inQueueSize(0), 
 		  outQueueSize(0),
-		  downLens(),
+		  downInNum(0),
+		  downInBases(0),
 		  downBases(0),
-		  downDiffQualBases(P2In->n_thread, std::vector<int>(256,0)),
-		  downDiffQualReads(P2In->n_thread, std::vector<int>(256,0)),
+		  downLens(),
+		  downDiffQualReadsBases(P2In->n_thread, std::vector<uint64_t>(256,0)),
 		  downBaseQual(P2In->n_thread),
 	  	  downBaseCounts(P2In->n_thread),
+		  down5pBaseQual(P2In->n_thread),
+		  down5pBaseCounts(P2In->n_thread),
 		  down3pBaseQual(P2In->n_thread),
 		  down3pBaseCounts(P2In->n_thread) {}
 	
-	std::array<std::atomic<uint64_t>, 2> OutInfo;
-
+	uint64_t downInNum;
+	uint64_t downInBases;
 	uint64_t downBases;
 	std::vector<int> downLens;
-	std::vector<std::vector<int>> downDiffQualBases, downDiffQualReads;
+	std::vector<std::vector<uint64_t>> downDiffQualReadsBases;
 	std::vector<std::vector<std::vector<uint64_t>>> downBaseQual, downBaseCounts;
+	std::vector<std::vector<std::vector<uint64_t>>> down5pBaseQual, down5pBaseCounts;
 	std::vector<std::vector<std::vector<uint64_t>>> down3pBaseQual, down3pBaseCounts;
 
 
@@ -2145,13 +2131,15 @@ public:
 private:
 	void get_fastx_SeqLen(){
 		FastxReader reader(InPath);
-        ks* readObj = nullptr;
-        while ((readObj = reader.read()) != nullptr) {
-			string name = readObj->name;
-			string seq = readObj->seq;
+        kseq* ks = nullptr;
+        while ((ks = reader.read()) != nullptr) {
+			string name = ks->name;
+			string seq = ks->seq;
+			delete ks;
 			int seqLen = seq.length();
 			totalSize += seqLen;
-			delete readObj;
+			downInNum++;
+			downInBases+=seqLen;
 			seqLens[name] = seqLen;
 		}
 	}
@@ -2159,7 +2147,8 @@ private:
 	int get_bam_SeqLen(){
 		htsFile *bamFile = hts_open(InPath.c_str(), "r");
 		if (bamFile == nullptr) {
-			error_exit("Failed to open file: " + InPath);
+			cerr <<"Error: Failed to open file: "+InPath<<endl;
+			exit(-1);
 		}
 		hts_set_opt(bamFile, HTS_OPT_NTHREADS, P2In->n_thread);
 		hts_set_log_level(HTS_LOG_OFF);
@@ -2172,6 +2161,8 @@ private:
 			int seqLen = bamRecord->core.l_qseq;
 			seqLens[name] = seqLen;
 			totalSize += seqLen;
+			downInNum++;
+			downInBases+=seqLen;
 		}
         bam_destroy1(bamRecord);
         bam_hdr_destroy(bamHeader);
@@ -2191,8 +2182,6 @@ private:
 			for(const auto& pair : vec) {
 				seqNames.insert(pair.first);
 				addedSize += pair.second;
-				OutInfo[0]++;
-				OutInfo[1]+=pair.second;
 				downBases += pair.second;
 				downLens.push_back(pair.second);
 				if (addedSize >= desiredSize){
@@ -2210,8 +2199,6 @@ private:
 			for(const auto& pair : vec) {
 				seqNames.insert(pair.first);
 				addedSize += pair.second;
-				OutInfo[0]++;
-				OutInfo[1]+=pair.second;
 				downBases += pair.second;
 				downLens.push_back(pair.second);
 				if (addedSize >= desiredSize){
@@ -2223,8 +2210,6 @@ private:
 			for(const auto& pair : vec) {
 				seqNames.insert(pair.first);
 				addedNum++;
-				OutInfo[0]++;
-				OutInfo[1]+=pair.second;
 				downBases += pair.second;
 				downLens.push_back(pair.second);
 				if (addedNum >= (P2In->DesiredNum)){
@@ -2236,16 +2221,16 @@ private:
 
     int read_fastx() {
 		FastxReader reader(InPath);
-        ks* readObj = nullptr;
+        kseq* ks = nullptr;
 
-        while ((readObj = reader.read()) != nullptr) {
-			string name = readObj->name;
-			string seq = readObj->seq;
-			string qual = readObj->qual;
-			delete readObj;
+        while ((ks = reader.read()) != nullptr) {
+			string name = ks->name;
+			string seq = ks->seq;
+			string qual = ks->qual;
+			delete ks;
 
 			if (seqNames.find(name) != seqNames.end()) {
-				inputFastx_queue.enqueue(std::make_tuple(name, seq, qual));
+				input_queue.enqueue(std::make_tuple(name, seq, qual));
 				inQueueSize++;
 				readNum++;
 				if (inQueueSize >= 2 * worker_count){
@@ -2272,15 +2257,25 @@ private:
 
         while (sam_read1(bamFile, bamHeader, bamRecord) >= 0) {
 			string name = bam_get_qname(bamRecord);
-			uint8_t *seq = bam_get_seq(bamRecord);
-			uint8_t *qual = bam_get_qual(bamRecord);
+			uint8_t *seqChar = bam_get_seq(bamRecord);
+			uint8_t *qualChar = bam_get_qual(bamRecord);
 			int seqLen = bamRecord->core.l_qseq;
 
 			if (seqNames.find(name) != seqNames.end()) {
-				inputBam_queue.enqueue(std::make_tuple(name, seq, qual, seqLen));
+				string seq;
+				string qual;
+
+				for (int i = 0; i < seqLen; ++i) {
+					char b = Base[bam_seqi(seqChar, i)];
+					char q = qualChar[i] + 33;
+					seq += b;
+					qual += q;
+				}
+				
+				input_queue.enqueue(std::make_tuple(name, seq, qual));
 				inQueueSize++;
 				readNum++;
-				if (inQueueSize >= worker_count){
+				if (inQueueSize >= 2 * worker_count){
 					this_thread::sleep_for(chrono::milliseconds(1));
 				}
 			}
@@ -2295,94 +2290,75 @@ private:
     //
     void filter_sequence(int tid) {
         while (!(read_done && inQueueSize == 0 && readNum == filterNum)) {
-			string rawName;
-            string rawSeq;
-            string rawQual;
-            int rawQualLen=0;
-			int rawSeqLen = 0;
+			string downName;
+            string downSeq;
+            string downQual;
+            int downQualLen=0;
+			int downSeqLen = 0;
 
-			if ((P2In->Infq)==2){
-				std::tuple<std::string, uint8_t*, uint8_t*, int> info;
-				if (inputBam_queue.try_dequeue(info)) {
-					inQueueSize--;
-					outNum++;
-					rawName = std::get<0>(info);
-					uint8_t* seqChar = std::get<1>(info);
-					uint8_t* qualChar = std::get<2>(info);
-					rawSeqLen = std::get<3>(info);
-					rawQualLen = rawSeqLen;
-					for (int i = 0; i < rawSeqLen; ++i) {
-						char b = Base[bam_seqi(&seqChar[i], 0)];
-						char q = qualChar[i] + 33;
-						rawSeq += b;
-						rawQual += q;
-					}
-				} else {
-					this_thread::sleep_for(chrono::milliseconds(1));
-				}
-			} else if ((P2In->Infq)==1 || (P2In->Infq)==0){
-				std::tuple<std::string, std::string, std::string> info;
-				if (inputFastx_queue.try_dequeue(info)) {
-					inQueueSize--;
-					outNum++;
-					rawName = std::get<0>(info);
-					rawSeq = std::get<1>(info);
-					rawQual = std::get<2>(info);
-					rawSeqLen = rawSeq.length();
-					rawQualLen = rawQual.length();
-				} else {
-					this_thread::sleep_for(chrono::milliseconds(1));
-				}
+			std::tuple<std::string, std::string, std::string> info;
+			if (input_queue.try_dequeue(info)) {
+				inQueueSize--;
+				outNum++;
+				downName = std::get<0>(info);
+				downSeq = std::get<1>(info);
+				downQual = std::get<2>(info);
+				downSeqLen = downSeq.length();
+				downQualLen = downQual.length();
+			} else {
+				this_thread::sleep_for(chrono::milliseconds(1));
 			}
-
-			if (rawSeqLen > 0){
-				if (rawQualLen > 0){
-					double avgQuality;
-                    avgQuality=CalcAvgQuality(rawSeq, rawQual, downBaseQual[tid], downBaseCounts[tid], downDiffQualBases[tid]);
-					downDiffQualReads[tid][int(avgQuality)]++;
-					Get_tail_base_qual(rawSeq, rawQual, down3pBaseQual[tid], down3pBaseCounts[tid]);
+			
+			if (downSeqLen > 0){
+				if (downQualLen > 0){
+					double downQuality;
+                    downQuality=CalcAvgQuality(downSeq, downQual, downBaseQual[tid], downBaseCounts[tid]);
+					downDiffQualReadsBases[tid][int(downQuality)]+=downSeqLen;
+					Get_5p_base_qual(downSeq, downQual, down5pBaseQual[tid], down5pBaseCounts[tid]);
+					Get_3p_base_qual(downSeq, downQual, down3pBaseQual[tid], down3pBaseCounts[tid]);
                 }else{
-                    Get_base_counts(rawSeq, downBaseCounts[tid]);
-					Get_tail_base_counts(rawSeq, down3pBaseCounts[tid]);
+                    Get_base_counts(downSeq, downBaseCounts[tid]);
+					Get_5p_base_counts(downSeq, down5pBaseCounts[tid]);
+					Get_3p_base_counts(downSeq, down3pBaseCounts[tid]);
                 }
 
-				string out;
+				string downOut;
 				if ((P2In->Outfq)==1){
-					out = "@" + rawName +"\n" + rawSeq + "\n+\n" + rawQual + "\n";
+					downOut = "@" + downName +"\n" + downSeq + "\n+\n" + downQual + "\n";
 					if (P2In->OUTGZ){
 						uint8_t *ComData;
 						size_t ComSize;
 						DeflateCompress GZData;
-						if (GZData.compressData(out.c_str(), ComData, ComSize)) {
+						if (GZData.compressData(downOut.c_str(), ComData, ComSize)) {
 							outputGz_queue.enqueue({ComData, ComSize});
 							outQueueSize++;
 						} else {
 							free(ComData);
 						}
 					} else{
-						output_queue.enqueue(out);
+						output_queue.enqueue(downOut);
 						outQueueSize++;
 
 					}
 				} else if((P2In->Outfq)==0){
-					out = ">" + rawName +"\n" + rawSeq + "\n";
+					downOut = ">" + downName +"\n" + downSeq + "\n";
 					if (P2In->OUTGZ){
 						uint8_t *ComData;
 						size_t ComSize;
 						DeflateCompress GZData;
-						if (GZData.compressData(out.c_str(), ComData, ComSize)) {
+						if (GZData.compressData(downOut.c_str(), ComData, ComSize)) {
 							outputGz_queue.enqueue({ComData, ComSize});
 							outQueueSize++;
 						} else {
 							free(ComData);
 						}
 					} else {
-						output_queue.enqueue(out);
+						output_queue.enqueue(downOut);
 						outQueueSize++;
 					}
 				}
 
-				if (outQueueSize >= worker_count){
+				if (outQueueSize >= 2 * worker_count){
 					this_thread::sleep_for(chrono::milliseconds(1));
 				}
 				filterNum++;
@@ -2453,13 +2429,9 @@ private:
 	uint64_t totalSize;
 	std::unordered_set<std::string> seqNames;
     int worker_count;
-    moodycamel::ConcurrentQueue<std::tuple<std::string, std::string, std::string>> inputFastx_queue;
-    moodycamel::ConcurrentQueue<std::tuple<std::string, uint8_t*, uint8_t*, int>> inputBam_queue;
+    moodycamel::ConcurrentQueue<std::tuple<std::string, std::string, std::string>> input_queue;
     moodycamel::ConcurrentQueue<std::string> output_queue;
     moodycamel::ConcurrentQueue<std::pair<uint8_t*, int>> outputGz_queue;
-
-    int headCrop;
-    int totalCrop;
 
 	std::atomic<bool> read_done;
 	std::atomic<bool> filter_done;
@@ -2485,70 +2457,27 @@ std::string generateRandomString(const int length) {
     return randomString;
 }
 
-struct BarPlotData {
-    std::vector<int> x;
-    std::vector<float> y;
-};
-
-struct LineYData {
-    std::string bases;
-    std::vector<float> data;
-};
-
-struct LinePlotData {
-    std::vector<int> x;
-    std::vector<LineYData> y;
-};
-
-void Get_diff_quals(const std::vector<std::vector<int>> &diffQuals,
-                    std::vector<uint64_t> &outQuals) {
-    uint64_t Q5 = 0;
-    uint64_t Q7 = 0;
-    uint64_t Q10 = 0;
-    uint64_t Q13 = 0;
-    uint64_t Q15 = 0;
-    uint64_t Q17 = 0;
-    uint64_t Q20 = 0;
-    uint64_t Q23 = 0;
-    uint64_t Q30 = 0;
-	uint64_t Q40 = 0;
-
-    for (int i = 0; i < diffQuals.size(); i++) {
-        for (int j = 0; j < diffQuals[i].size(); j++) {
-            uint64_t number = diffQuals[i][j];
-            if (j >= 5) {
-                Q5 += number;
-            }
-            if (j >= 7) {
-                Q7 += number;
-            }
-            if (j >= 10) {
-                Q10 += number;
-            }
-            if (j >= 13) {
-                Q13 += number;
-            }
-            if (j >= 15) {
-                Q15 += number;
-            }
-            if (j >= 17) {
-                Q17 += number;
-            }
-            if (j >= 20) {
-                Q20 += number;
-            }
-            if (j >= 23) {
-                Q23 += number;
-            }
-            if (j >= 30) {
-                Q30 += number;
-            }
-			if (j >= 40) {
-                Q40 += number;
-            }
-        }
-    }
-    outQuals = {Q5, Q7, Q10, Q13, Q15, Q17, Q20, Q23, Q30, Q40};
+void Get_qual_Dis(const std::vector<std::vector<uint64_t>> &diffQuals,
+					uint64_t baseNum, QualDisData &qualDis){
+	///merge//
+	int maxQual=0;
+	std::vector<uint64_t> diffQualsMerge(256,0);
+	for (int i = 0; i < diffQuals.size(); i++) {
+		for (int j = 0; j < diffQuals[i].size(); j++) {
+			uint64_t bases=diffQuals[i][j];
+			diffQualsMerge[j]+=bases;
+			if (bases>0){
+				maxQual=j;
+			}
+		}
+	}
+	///ratio///
+	qualDis.x.resize(maxQual+1);
+	qualDis.y.resize(maxQual+1);
+	for (int i = 0; i <= maxQual; i++) {
+		qualDis.x[i]=i;
+		qualDis.y[i]=static_cast<float>(diffQualsMerge[i]*100)/baseNum;
+	}
 }
 
 void Get_plot_line_data(Para_A24* P2In,
@@ -2564,71 +2493,120 @@ void Get_plot_line_data(Para_A24* P2In,
                         LinePlotData &raw3pBasesContents,
                         const std::vector<std::vector<std::vector<uint64_t>>> &rawBaseQual,
                         const std::vector<std::vector<std::vector<uint64_t>>> &rawBaseCounts,
+						const std::vector<std::vector<std::vector<uint64_t>>> &raw5pBaseQual,
+						const std::vector<std::vector<std::vector<uint64_t>>> &raw5pBaseCounts,
 						const std::vector<std::vector<std::vector<uint64_t>>> &raw3pBaseQual,
                         const std::vector<std::vector<std::vector<uint64_t>>> &raw3pBaseCounts){
 
     int n_threads=P2In->n_thread;
     uint64_t rawBaseQualSum=0;
     uint64_t rawGCSum=0;
-    std::vector<std::string> bases = {"A", "G", "C", "T", "Mean"};
+    std::vector<std::string> bases = {"A", "T", "G", "C", "Mean"};
 	int baseNum=bases.size();
 	//
+	uint64_t i=1;
+	uint64_t step=100;
+	std::vector<uint64_t> indexs;
+
+	while(i < rawMax){
+		indexs.push_back(i);
+		step=i/20;
+		if (step<100){
+			step=100;
+		}
+		
+		i+=step;
+	}
+	indexs.push_back(rawMax);
+	uint64_t vecMax=indexs.size()-1;
+
+	std::unordered_map<uint64_t, uint64_t> vecIndexs;
+	std::unordered_map<uint64_t, uint64_t> lenIndexs;
+    for (uint64_t i = 0; i < vecMax; ++i) {
+		uint64_t index=indexs[i];
+		vecIndexs[index]=i;
+        for (uint64_t x = indexs[i]; x < indexs[i + 1]; ++x) {
+            lenIndexs[x] = index;
+			//cerr <<x<<" index "<<index<<endl;
+        }
+    }
+	lenIndexs[rawMax]=indexs.back();
+
 	std::vector<std::vector<uint64_t>> rawBaseQualMerge, rawBaseCountsMerge;
+	std::vector<std::vector<uint64_t>> raw5pBaseQualMerge, raw5pBaseCountsMerge;
 	std::vector<std::vector<uint64_t>> raw3pBaseQualMerge, raw3pBaseCountsMerge;
-	rawBaseQualMerge.resize(rawMax, std::vector<uint64_t>(baseNum));
-	rawBaseCountsMerge.resize(rawMax, std::vector<uint64_t>(baseNum));
+
+	rawBaseQualMerge.resize(vecMax, std::vector<uint64_t>(baseNum));
+	rawBaseCountsMerge.resize(vecMax, std::vector<uint64_t>(baseNum));
+	raw5pBaseQualMerge.resize(150, std::vector<uint64_t>(baseNum));
+	raw5pBaseCountsMerge.resize(150, std::vector<uint64_t>(baseNum));
 	raw3pBaseQualMerge.resize(150, std::vector<uint64_t>(baseNum));
 	raw3pBaseCountsMerge.resize(150, std::vector<uint64_t>(baseNum));
 
 	/////////////////////////////////////////merge data from different threads////////////////////////
 	for (int i=0; i<n_threads; i++){
-		for (int j=0; j<rawBaseQual[i].size();j++){
+		for (uint64_t j=0; j<rawBaseQual[i].size();j++){
+			uint64_t lenIndex=lenIndexs[j*100+1];
+			uint64_t vecIndex=vecIndexs[lenIndex];
+			//cerr <<j*100+1 <<" merge "<<lenIndex<<" "<<vecIndex<<endl;
 			for (int x=0; x<rawBaseQual[i][j].size(); x++){
-				rawBaseQualMerge[j][x]+=rawBaseQual[i][j][x];
-				rawBaseCountsMerge[j][x]+=rawBaseCounts[i][j][x];
+				rawBaseQualMerge[vecIndex][x]+=rawBaseQual[i][j][x];
+				rawBaseCountsMerge[vecIndex][x]+=rawBaseCounts[i][j][x];
 			}
 		}
 	}
-	
+
 	for (int i=0; i<n_threads; i++){
-		for (int j=0; j<raw3pBaseQual[i].size();j++){
+		for (uint64_t j=0; j<raw5pBaseQual[i].size();j++){
+			for (int x=0; x<raw5pBaseQual[i][j].size(); x++){
+				raw5pBaseQualMerge[j][x]+=raw5pBaseQual[i][j][x];
+				raw5pBaseCountsMerge[j][x]+=raw5pBaseCounts[i][j][x];
+			}
+		}
+	}
+
+	for (int i=0; i<n_threads; i++){
+		for (uint64_t j=0; j<raw3pBaseQual[i].size();j++){
 			for (int x=0; x<raw3pBaseQual[i][j].size(); x++){
 				raw3pBaseQualMerge[j][x]+=raw3pBaseQual[i][j][x];
 				raw3pBaseCountsMerge[j][x]+=raw3pBaseCounts[i][j][x];
 			}
 		}
 	}
-	
+
     ///////////////////////////////////////////////////whole reads/////////////////////////////////////
-    rawReadsQual.x.resize(rawMax);
+    rawReadsQual.x.resize(vecMax);
     rawReadsQual.y.resize(baseNum);
     for (int i = 0; i < baseNum; ++i) {
         rawReadsQual.y[i].bases=bases[i];
-        rawReadsQual.y[i].data.resize(rawMax);
+        rawReadsQual.y[i].data.resize(vecMax);
     }
     
-    rawBasesContents.x.resize(rawMax);
+    rawBasesContents.x.resize(vecMax);
     rawBasesContents.y.resize(baseNum-1);
     for (int i = 0; i < baseNum-1; ++i) {
         rawBasesContents.y[i].bases=bases[i];
-        rawBasesContents.y[i].data.resize(rawMax);
+        rawBasesContents.y[i].data.resize(vecMax);
     }
 
-	for (int i=0; i < rawMax; i++){
-		rawReadsQual.x[i] = i;
-        rawBasesContents.x[i] = i;
-		rawGCSum += rawBaseCountsMerge[i][1];
-        rawGCSum += rawBaseCountsMerge[i][2];
+	uint64_t rawATSum=0;
+	for (uint64_t i=0; i < vecMax; i++){
+		rawReadsQual.x[i] = indexs[i];
+        rawBasesContents.x[i] = indexs[i];
+		rawGCSum += rawBaseCountsMerge[i][2];
+        rawGCSum += rawBaseCountsMerge[i][3];
+		rawATSum += rawBaseCountsMerge[i][0];
+		rawATSum += rawBaseCountsMerge[i][1];
 		rawBaseQualSum += rawBaseQualMerge[i][baseNum-1];
 		for (int j=0; j<baseNum-1; j++){
 			if (rawBaseCountsMerge[i][j] > 0){
-				rawReadsQual.y[j].data[i] = rawBaseQualMerge[i][j]/rawBaseCountsMerge[i][j];
+				rawReadsQual.y[j].data[i] = static_cast<float>(rawBaseQualMerge[i][j])/rawBaseCountsMerge[i][j];
 			}else{
 				rawReadsQual.y[j].data[i] = 0;
 			}
 
 			if (rawBaseCountsMerge[i][baseNum-1] > 0){
-				rawBasesContents.y[j].data[i]=rawBaseCountsMerge[i][j]/rawBaseCountsMerge[i][baseNum-1];
+				rawBasesContents.y[j].data[i]=static_cast<float>(rawBaseCountsMerge[i][j]*100)/rawBaseCountsMerge[i][baseNum-1];
 			}else{
 				rawBasesContents.y[j].data[i]=0;
 			}
@@ -2636,15 +2614,17 @@ void Get_plot_line_data(Para_A24* P2In,
 		}
 
 		if (rawBaseCountsMerge[i][baseNum-1] >0 ){
-			rawReadsQual.y[baseNum-1].data[i]=rawBaseQualMerge[i][baseNum-1]/rawBaseCountsMerge[i][baseNum-1];
+			rawReadsQual.y[baseNum-1].data[i]=static_cast<float>(rawBaseQualMerge[i][baseNum-1])/rawBaseCountsMerge[i][baseNum-1];
 		}else{
 			rawReadsQual.y[baseNum-1].data[i]=0;
 		}
 	}
+	
 	rawGC = static_cast<float>(rawGCSum*100)/rawBases; // GC content(%)
 	//rawGC = round(rawGC * 100) / 100.0;
     rawMeanQual = static_cast<float>(rawBaseQualSum)/rawBases;
 	//rawMeanQual = round(rawMeanQual * 100) / 100.0;
+
 	////////////////////////////////////read 5p ////////////////////////////////////////////////////
 	raw5pReadsQual.x.resize(150);
     raw5pReadsQual.y.resize(baseNum);
@@ -2652,7 +2632,7 @@ void Get_plot_line_data(Para_A24* P2In,
         raw5pReadsQual.y[i].bases=bases[i];
         raw5pReadsQual.y[i].data.resize(150);
     }
-    
+
     raw5pBasesContents.x.resize(150);
     raw5pBasesContents.y.resize(baseNum-1);
     for (int i = 0; i < baseNum-1; ++i) {
@@ -2661,29 +2641,29 @@ void Get_plot_line_data(Para_A24* P2In,
     }
 
 	for (int i=0; i < 150; i++){
-		raw5pReadsQual.x[i] = i;
-        raw5pBasesContents.x[i] = i;
+		raw5pReadsQual.x[i] = i+1;
+        raw5pBasesContents.x[i] = i+1;
 		for (int j=0; j<baseNum-1; j++){
-			if (rawBaseCountsMerge[i][j] > 0){
-				raw5pReadsQual.y[j].data[i]=rawBaseQualMerge[i][j]/rawBaseCountsMerge[i][j];
+			if (raw5pBaseCountsMerge[i][j] > 0){
+				raw5pReadsQual.y[j].data[i]=static_cast<float>(raw5pBaseQualMerge[i][j])/raw5pBaseCountsMerge[i][j];
 			}else{
 				raw5pReadsQual.y[j].data[i]=0;
 			}
 
-			if (rawBaseCountsMerge[i][baseNum-1] > 0){
-				raw5pBasesContents.y[j].data[i]=rawBaseCountsMerge[i][j]/rawBaseCountsMerge[i][baseNum-1];
+			if (raw5pBaseCountsMerge[i][baseNum-1] > 0){
+				raw5pBasesContents.y[j].data[i]=static_cast<float>(raw5pBaseCountsMerge[i][j]*100)/raw5pBaseCountsMerge[i][baseNum-1];
 			}else{
 				raw5pBasesContents.y[j].data[i]=0;
 			}    
 		}
 
-		if (rawBaseCountsMerge[i][baseNum-1] > 0){
-			raw5pReadsQual.y[baseNum-1].data[i]=rawBaseQualMerge[i][baseNum-1]/rawBaseCountsMerge[i][baseNum-1];
+		if (raw5pBaseCountsMerge[i][baseNum-1] > 0){
+			raw5pReadsQual.y[baseNum-1].data[i]=static_cast<float>(raw5pBaseQualMerge[i][baseNum-1])/raw5pBaseCountsMerge[i][baseNum-1];
 		}else{
 			raw5pReadsQual.y[baseNum-1].data[i]=0;
 		}
-		
 	}
+	
 	/////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////read 3p///////////////////////////////////////////////
 	
@@ -2702,48 +2682,72 @@ void Get_plot_line_data(Para_A24* P2In,
     }
 
 	for (int i=0; i < 150; i++){
-		raw3pReadsQual.x[i] = i;
-        raw3pBasesContents.x[i] = i;
+		raw3pReadsQual.x[i] = i+1;
+        raw3pBasesContents.x[i] = i+1;
 		for (int j=0; j<baseNum-1; j++){
 			if (raw3pBaseCountsMerge[i][j] > 0){
-				raw3pReadsQual.y[j].data[i]=raw3pBaseQualMerge[i][j]/raw3pBaseCountsMerge[i][j];
+				raw3pReadsQual.y[j].data[i]=static_cast<float>(raw3pBaseQualMerge[i][j])/raw3pBaseCountsMerge[i][j];
 			}else{
 				raw3pReadsQual.y[j].data[i]=0;
 			}
 			
 			if (raw3pBaseCountsMerge[i][baseNum-1]>0){
-				raw3pBasesContents.y[j].data[i]=raw3pBaseCountsMerge[i][j]/raw3pBaseCountsMerge[i][baseNum-1];
+				raw3pBasesContents.y[j].data[i]=static_cast<float>(raw3pBaseCountsMerge[i][j]*100)/raw3pBaseCountsMerge[i][baseNum-1];
 			}else{
 				raw3pBasesContents.y[j].data[i]=0;
 			}
 		}
 
 		if (raw3pBaseCountsMerge[i][baseNum-1] >0){
-			raw3pReadsQual.y[baseNum-1].data[i]=raw3pBaseQualMerge[i][baseNum-1]/raw3pBaseCountsMerge[i][baseNum-1];
+			raw3pReadsQual.y[baseNum-1].data[i]=static_cast<float>(raw3pBaseQualMerge[i][baseNum-1])/raw3pBaseCountsMerge[i][baseNum-1];
 		}else{
 			raw3pReadsQual.y[baseNum-1].data[i]=0;
 		}
-		
 	}
+	
 }
 
-void Get_plot_bar_data(std::vector<int> &rawLens,
-						BarPlotData &rawLenDis) {
+void Get_length_Dis(std::vector<int> &rawLens,
+						LenDisData &rawLenDis) {
+	
+	int step=1;
+	int i=rawLens.front();
 	int rawMax=rawLens.back();
-	std::vector<int> rawLenDisData(int(rawMax/100));
-	for (int len : rawLens) {
-		int index = int(len/100);
-		rawLenDisData[index]++;
-
+	std::vector<uint64_t> indexs;
+	while(i < rawMax){
+		indexs.push_back(i);
+		step=i/20;
+		if (step<100){
+			step=100;
+		}
+		i+=step;
 	}
-	rawLenDis.x.resize(rawLenDisData.size());
-	rawLenDis.y.resize(rawLenDisData.size());
-	for (int i = 0; i < rawLenDisData.size(); ++i) {
-		rawLenDis.x[i] = i*100;
-		rawLenDis.y[i] = rawLenDisData[i];
+	indexs.push_back(rawMax);
+
+	int vecMax=indexs.size()-1;
+	std::unordered_map<int, int> seqIndex;
+    for (int i = 0; i < vecMax; ++i) {
+        for (int x = indexs[i]; x < indexs[i + 1]; ++x) {
+            seqIndex[x] = indexs[i];
+        }
+    }
+	seqIndex[rawMax]=indexs[vecMax-1];
+
+	std::unordered_map<int, int> seqNum;
+	for (int len : rawLens) {
+		int index=seqIndex[len];
+		seqNum[index]++;
+	}
+
+	rawLenDis.x.resize(vecMax);
+	rawLenDis.y.resize(vecMax);
+	for (int i = 0; i < vecMax; ++i) {
+		int index=indexs[i];
+		rawLenDis.x[i] = index;
+		rawLenDis.y[i] = seqNum[index];
+		//cerr <<index <<" "<<seqNum[index]<<endl;
 	}	
 }
-
 
 int Get_N50(std::vector<int> &rawLens, int &rawNum, uint64_t &rawBases){
 	uint64_t rawN50Bases=0;
@@ -2768,6 +2772,24 @@ std::string limitDecimalPlaces(double num, int places) {
     return str;
 }
 
+void Get_adapters(Para_A24 * P2In){
+	string adapter_name=P2In->AdapterFile;
+	FastxReader reader(adapter_name);
+	kseq* ks = nullptr;
+	while ((ks = reader.read()) != nullptr) {
+		string name = ks->name;
+		string seq_for = ks->seq;
+		string seq_rev=rev_comp_seq(seq_for);
+		adapters.insert(seq_for);
+		adapters.insert(seq_rev);
+		delete ks;
+	}
+
+	for (const std::string& adapter : adapters) {
+		cerr <<"INFO: input adapter: "<< adapter << endl;
+	}
+
+}
 
 /// ////////////////////////////////////////////////////////////////
 int main (int argc, char *argv[ ]) {
@@ -2810,9 +2832,13 @@ int main (int argc, char *argv[ ]) {
 		}
 	}else{
 		if (P2In->FastaOut){
-			P2In->Outfq=0;
+			P2In->Outfq = 0;
 		}else{
-			P2In->Outfq = P2In->Infq;
+			if (P2In->Infq==2){
+				P2In->Outfq = 1;
+			}else{
+				P2In->Outfq = P2In->Infq;
+			}
 		}
 	}
 
@@ -2841,8 +2867,10 @@ int main (int argc, char *argv[ ]) {
 	uint64_t cleanBases;
 	uint64_t downBases;
 
-	std::vector<std::vector<std::string>> tabInfo(29, std::vector<std::string>(3,"0"));
-	BarPlotData rawLenDis, cleanLenDis, downLenDis;
+	std::vector<std::vector<std::string>> tabInfo(9, std::vector<std::string>(3,"0"));
+	LenDisData rawLenDis, cleanLenDis, downLenDis;
+	QualDisData rawQualDis, cleanQualDis, downQualDis;
+
 	LinePlotData rawReadsQual, raw5pReadsQual, raw3pReadsQual;
 	LinePlotData cleanReadsQual, clean5pReadsQual, clean3pReadsQual;
 	LinePlotData downReadsQual, down5pReadsQual, down3pReadsQual;
@@ -2852,11 +2880,80 @@ int main (int argc, char *argv[ ]) {
 
 	string downInput;
 	if (P2In->Filter){
-		Get_filter_parameter(P2In);
-		if (P2In->ONLYAD){
-			return 0;
+		///////////////////////////////////get filter parameter////////////////////////////////////////
+		GetFilterParameterTask Parameter(P2In);
+    	Parameter.start();
+		if ((P2In->HeadTrim)<0){
+			P2In->HeadTrim=Parameter.trim5p;
 		}
 
+		if ((P2In->TailTrim)<0){
+			P2In->TailTrim=Parameter.trim3p;
+		}
+		cerr << "INFO: trim 5' end length: "<<P2In->HeadTrim<<endl;
+		cerr << "INFO: trim 3' end length: "<<P2In->TailTrim<<endl;
+		cerr << "INFO: min output reads length: "<<P2In->MinLen<<endl;
+		if ((P2In->Infq)==1 || (P2In->Infq)==2){
+			cerr << "INFO: base quality scoring: Phred"<<qType<<endl;
+			cerr << "INFO: min Phred average quality score: "<<(P2In->MinQ)<<endl;
+		}
+
+		if (!(P2In->AdapterFile).empty()){
+			Get_adapters(P2In);
+		}else{
+			std::string adapter_5p= Parameter.adapter5p;
+			std::string adapter_3p= Parameter.adapter3p;
+			float depth_5p = Parameter.adapterDep5p;
+			float depth_3p = Parameter.adapterDep3p;
+
+			if (depth_5p > 5*depth_3p){
+				adapter_3p="";
+				depth_3p=0;
+			}else if (depth_3p > 5*depth_5p){
+				adapter_5p="";
+				depth_5p=0;
+			}
+
+			cerr <<"INFO: 5' adapter: " << adapter_5p << endl;
+			cerr <<"INFO: 3' adapter: " << adapter_3p << endl;
+
+			cerr <<"INFO: mean depth of 5' adapter: "<<depth_5p<<endl;
+			cerr <<"INFO: mean depth of 3' adapter: "<<depth_3p<<endl;
+
+			if (P2In->ONLYAD){
+				delete P2In ;
+				return 0;
+			}
+
+			if (!adapter_5p.empty()){
+				adapters.insert(adapter_5p);
+				adapters.insert(rev_comp_seq(adapter_5p));
+			}
+
+			if (!adapter_3p.empty()){
+				adapters.insert(adapter_3p);
+				adapters.insert(rev_comp_seq(adapter_3p));
+			}
+
+			if (adapter_5p.empty() && adapter_3p.empty()){
+				
+				if (P2In->readType == "hifi" || P2In->readType == "clr"){
+					string pacbioAdpter_for=Parameter.adapterLib[0];
+					string pacbioAdpter_rev=Parameter.adapterLib[1];
+					adapters.insert(pacbioAdpter_for);
+					adapters.insert(pacbioAdpter_rev);
+					cerr <<"INFO: set PacBio blunt adapter to trim: "<<pacbioAdpter_for<<endl;
+				}else if (P2In->readType == "ont"){
+					string ontAdpter_for=Parameter.adapterLib[8];
+					string ontAdpter_rev=Parameter.adapterLib[9];
+					adapters.insert(ontAdpter_for);
+					adapters.insert(ontAdpter_rev);
+					cerr <<"INFO: set NanoPore rapid adapter to trim: "<<ontAdpter_for<<endl;
+				}
+			}
+		}
+
+		////////////////////////////////////////////////////////////////////////////////////////////////
 		if (P2In->Downsample){
 			string rand=generateRandomString(5);
 			if ((P2In->Outfq)==0){
@@ -2911,6 +3008,7 @@ int main (int argc, char *argv[ ]) {
 						raw5pReadsQual, raw5pBasesContents,
 						raw3pReadsQual, raw3pBasesContents,
                     	task.rawBaseQual, task.rawBaseCounts,
+						task.raw5pBaseQual, task.raw5pBaseCounts,
 						task.raw3pBaseQual, task.raw3pBaseCounts);
 		tabInfo[2][0] = limitDecimalPlaces(round(rawGC * 1000) / 1000.0, 3); // GC content (% ,string)
 		tabInfo[8][0] = limitDecimalPlaces(round(rawMeanQual * 1000) / 1000.0, 3); // mean quality
@@ -2923,99 +3021,44 @@ int main (int argc, char *argv[ ]) {
 						clean5pReadsQual, clean5pBasesContents,
 						clean3pReadsQual, clean3pBasesContents,
                     	task.cleanBaseQual, task.cleanBaseCounts,
+						task.clean5pBaseQual, task.clean5pBaseCounts,
 						task.clean3pBaseQual, task.clean3pBaseCounts);
 		tabInfo[2][1] = limitDecimalPlaces(round(cleanGC * 1000) / 1000.0, 3); // GC content (% ,string)
 		tabInfo[8][1] = limitDecimalPlaces(round(cleanMeanQual * 1000) / 1000.0, 3); // mean quality
 		/////////////////////////////////////Length distribution/////////////////////////////////////////////
 		
-		Get_plot_bar_data(rawLens, rawLenDis); // raw Length distribution
-		Get_plot_bar_data(cleanLens, cleanLenDis); // clean Length distribution
+		Get_length_Dis(rawLens, rawLenDis); // raw Length distribution
+		Get_length_Dis(cleanLens, cleanLenDis); // clean Length distribution
 
-		/////////////////////////////////raw reads with diffeerent quals//////////////////////
+		/////////////////////////////////reads with diffeerent quals//////////////////////
 		
-		std::vector<uint64_t> rawDiffQualReads;
-		Get_diff_quals(task.rawDiffQualReads, rawDiffQualReads);
-		tabInfo[9][0]=std::to_string(rawDiffQualReads[0]); // Q5
-		tabInfo[10][0]=std::to_string(rawDiffQualReads[1]); //Q7
-		tabInfo[11][0]=std::to_string(rawDiffQualReads[2]); //Q10
-		tabInfo[12][0]=std::to_string(rawDiffQualReads[3]); //Q13
-		tabInfo[13][0]=std::to_string(rawDiffQualReads[4]);	//Q15
-		tabInfo[14][0]=std::to_string(rawDiffQualReads[5]); //Q17
-		tabInfo[15][0]=std::to_string(rawDiffQualReads[6]); //Q20
-		tabInfo[16][0]=std::to_string(rawDiffQualReads[7]); //Q23
-		tabInfo[17][0]=std::to_string(rawDiffQualReads[8]); //Q30
-		tabInfo[18][0]=std::to_string(rawDiffQualReads[9]); //Q40
-		/////////////////////////////////clean reads with diffeerent quals//////////////////////
-
-		std::vector<uint64_t> cleanDiffQualReads;
-		Get_diff_quals(task.cleanDiffQualReads, cleanDiffQualReads);
-		tabInfo[9][1]=std::to_string(cleanDiffQualReads[0]); // Q5
-		tabInfo[10][1]=std::to_string(cleanDiffQualReads[1]); //Q7
-		tabInfo[11][1]=std::to_string(cleanDiffQualReads[2]); //Q10
-		tabInfo[12][1]=std::to_string(cleanDiffQualReads[3]); //Q13
-		tabInfo[13][1]=std::to_string(cleanDiffQualReads[4]); //Q15
-		tabInfo[14][1]=std::to_string(cleanDiffQualReads[5]); //Q17
-		tabInfo[15][1]=std::to_string(cleanDiffQualReads[6]); //Q20
-		tabInfo[16][1]=std::to_string(cleanDiffQualReads[7]); //Q23
-		tabInfo[17][1]=std::to_string(cleanDiffQualReads[8]); //Q30
-		tabInfo[18][1]=std::to_string(cleanDiffQualReads[9]); //Q40
+		Get_qual_Dis(task.rawDiffQualReadsBases, rawBases, rawQualDis);
+		Get_qual_Dis(task.cleanDiffQualReadsBases, cleanBases, cleanQualDis);
 		
-		/////////////////////////////////raw Bases with diffeerent quals//////////////////////
-
-		std::vector<uint64_t> rawDiffQualBases;
-		Get_diff_quals(task.rawDiffQualBases, rawDiffQualBases);
+		///////////////////////////////////////////////////////下面此处数据不要管///////////////////////////////////////////////////////////////
+		std::vector<uint64_t> DropInfo(13,0);
+		for (int i = 0; i < P2In->n_thread; ++i) {
+			for (int j =0; j < 13; ++j){
+				DropInfo[j]+=task.DropInfo[i][j];
+			}
+    	}
+		cerr << "INFO: "<< rawNum <<" reads with a total of "<<rawBases<<" bases were input."<<endl;
+		cerr << "INFO: "<< DropInfo[0] <<" reads were discarded with "<<DropInfo[1]<<" bases due to low quality."<<endl;
+		cerr << "INFO: "<< DropInfo[2] <<" reads have adapter at 5', 3' and middle."<<endl;
+		cerr << "INFO: "<< DropInfo[3] <<" reads have adapter at 5' and middle."<<endl;
+		cerr << "INFO: "<< DropInfo[4] <<" reads have adapter at 3' and middle."<<endl;
+		cerr << "INFO: "<< DropInfo[5] <<" reads have adapter at 5' and 3' end."<<endl;
+		cerr << "INFO: "<< DropInfo[6] <<" reads only have adapter at middle."<<endl;
+		cerr << "INFO: "<< DropInfo[7] <<" reads only have adapter at 5' end."<<endl;
+		cerr << "INFO: "<< DropInfo[8] <<" reads only have adapter at 3' end."<<endl;
+		cerr << "INFO: "<< DropInfo[9] <<" reads didn't have any adapter."<<endl;
+		cerr << "INFO: "<< DropInfo[10] <<" bases were trimmed due to the adapter or base content bias."<<endl;
+		cerr << "INFO: "<< DropInfo[11] <<" reads were discarded with "<<DropInfo[12]<<" bases due to the short length before output."<<endl;
+		cerr << "INFO: "<< cleanNum <<" reads with a total of "<<cleanBases<<" bases after filtering."<<endl;
+		if (!(P2In->Downsample) && !(P2In->OutFile).empty()){
+			cerr << "INFO: Filtered reads were written to: "<<P2In->OutFile<<"."<<endl;
+		}
 		
-		tabInfo[19][0]=std::to_string(rawDiffQualBases[0]); // Q5
-		tabInfo[20][0]=std::to_string(rawDiffQualBases[1]); //Q7
-		tabInfo[21][0]=std::to_string(rawDiffQualBases[2]); //Q10
-		tabInfo[22][0]=std::to_string(rawDiffQualBases[3]); //Q13
-		tabInfo[23][0]=std::to_string(rawDiffQualBases[4]);	//Q15
-		tabInfo[24][0]=std::to_string(rawDiffQualBases[5]); //Q17
-		tabInfo[25][0]=std::to_string(rawDiffQualBases[6]); //Q20
-		tabInfo[26][0]=std::to_string(rawDiffQualBases[7]); //Q23
-		tabInfo[27][0]=std::to_string(rawDiffQualBases[8]); //Q30
-		tabInfo[28][0]=std::to_string(rawDiffQualBases[9]); //Q40
-		
-		/////////////////////////////////clean Bases with diffeerent quals//////////////////////
-
-		std::vector<uint64_t> cleanDiffQualBases;
-		Get_diff_quals(task.cleanDiffQualBases, cleanDiffQualBases);
-		tabInfo[19][1]=std::to_string(cleanDiffQualBases[0]); // Q5
-		tabInfo[20][1]=std::to_string(cleanDiffQualBases[1]); //Q7
-		tabInfo[21][1]=std::to_string(cleanDiffQualBases[2]); //Q10
-		tabInfo[22][1]=std::to_string(cleanDiffQualBases[3]); //Q13
-		tabInfo[23][1]=std::to_string(cleanDiffQualBases[4]); //Q15
-		tabInfo[24][1]=std::to_string(cleanDiffQualBases[5]); //Q17
-		tabInfo[25][1]=std::to_string(cleanDiffQualBases[6]); //Q20
-		tabInfo[26][1]=std::to_string(cleanDiffQualBases[7]); //Q23
-		tabInfo[27][1]=std::to_string(cleanDiffQualBases[8]); //Q30
-		tabInfo[28][1]=std::to_string(cleanDiffQualBases[9]); //Q40
-		///////////////////////////////////////////////////////下面此处数据不要管//////////////////////////////////////////////////////////////////////////////
-		uint64_t raw_reads = task.DropInfo[0];
-		uint64_t raw_bases = task.DropInfo[1];
-		uint64_t clean_reads = task.DropInfo[2];
-		uint64_t clean_bases = task.DropInfo[3];
-		uint64_t shortDrop_reads = task.DropInfo[4];
-		uint64_t shortDrop_bases = task.DropInfo[5];
-		uint64_t endDrop_reads = task.DropInfo[6];
-		uint64_t endDrop_bases = task.DropInfo[7];
-		uint64_t adapterDrop_reads = task.DropInfo[8];
-		uint64_t adapterDrop_bases = task.DropInfo[9];
-		uint64_t LQDrop_reads = task.DropInfo[10];
-		uint64_t LQDrop_bases = task.DropInfo[11];
-		uint64_t outDrop_reads = task.DropInfo[12];
-		uint64_t outDrop_bases = task.DropInfo[13];
-		uint64_t middle_reads = task.DropInfo[14];
-		uint64_t middle_bases = task.DropInfo[15];
-
-		cerr << "INFO: "<< raw_reads<<" reads with a total of "<<raw_bases<<" bases were input."<<endl;
-		cerr << "INFO: "<< shortDrop_reads <<" reads were discarded with "<<shortDrop_bases<<" bases before filtering."<<endl;
-		cerr << "INFO: "<< endDrop_reads <<" reads were trimmed by "<<endDrop_bases<<" bases at the end."<<endl;
-		cerr << "INFO: "<< LQDrop_reads <<" reads were discarded with "<<LQDrop_bases<<" bases due to low quality."<<endl;
-		cerr << "INFO: "<< middle_reads <<" read was discarded with " <<middle_bases<<" bases due to a middle adapter."<<endl;
-		cerr << "INFO: "<< adapterDrop_reads <<" reads were trimmed by " <<adapterDrop_bases<<" bases with an adapter."<<endl;
-		cerr << "INFO: "<< outDrop_reads<<" reads were discarded with "<<outDrop_bases<<" bases before output."<<endl;
-		cerr << "INFO: "<< clean_reads <<" reads with a total of "<<clean_bases<<" bases were output"<<endl;
 		///////////////////////////////////////////////////////上面此处数据不要管//////////////////////////////////////////////////////////////////////////////
 
 	} else {
@@ -3047,81 +3090,116 @@ int main (int argc, char *argv[ ]) {
 						down5pReadsQual, down5pBasesContents,
 						down3pReadsQual, down3pBasesContents,
                     	task.downBaseQual, task.downBaseCounts,
+						task.down5pBaseQual, task.down5pBaseCounts,
 						task.down3pBaseQual, task.down3pBaseCounts);
 		tabInfo[2][2] = limitDecimalPlaces(round(downGC * 1000) / 1000.0, 3); // GC content (% ,string)
 		tabInfo[8][2] = limitDecimalPlaces(round(downMeanQual * 1000) / 1000.0, 2); // mean quality
 		////////////////////////////////down Length distribution////////////////////////////////////
-		Get_plot_bar_data(downLens, downLenDis);
+		Get_length_Dis(downLens, downLenDis);
 
 		/////////////////////////////////down reads with diffeerent quals//////////////////////
 
-		std::vector<uint64_t> downDiffQualReads;
-		Get_diff_quals(task.downDiffQualReads, downDiffQualReads);
-		tabInfo[9][2]=std::to_string(downDiffQualReads[0]); // Q5
-		tabInfo[10][2]=std::to_string(downDiffQualReads[1]); //Q7
-		tabInfo[11][2]=std::to_string(downDiffQualReads[2]); //Q10
-		tabInfo[12][2]=std::to_string(downDiffQualReads[3]); //Q13
-		tabInfo[13][2]=std::to_string(downDiffQualReads[4]); //Q15
-		tabInfo[14][2]=std::to_string(downDiffQualReads[5]); //Q17
-		tabInfo[15][2]=std::to_string(downDiffQualReads[6]); //Q20
-		tabInfo[16][2]=std::to_string(downDiffQualReads[7]); //Q23
-		tabInfo[17][2]=std::to_string(downDiffQualReads[8]); //Q30
-		tabInfo[18][2]=std::to_string(downDiffQualReads[9]); //Q40
-		
-		/////////////////////////////////down Bases with diffeerent quals//////////////////////
-
-		std::vector<uint64_t> downDiffQualBases;
-		Get_diff_quals(task.downDiffQualBases, downDiffQualBases);
-		tabInfo[19][2]=std::to_string(downDiffQualBases[0]); // Q5
-		tabInfo[20][2]=std::to_string(downDiffQualBases[1]); //Q7
-		tabInfo[21][2]=std::to_string(downDiffQualBases[2]); //Q10
-		tabInfo[22][2]=std::to_string(downDiffQualBases[3]); //Q13
-		tabInfo[23][2]=std::to_string(downDiffQualBases[4]); //Q15
-		tabInfo[24][2]=std::to_string(downDiffQualBases[5]); //Q17
-		tabInfo[25][2]=std::to_string(downDiffQualBases[6]); //Q20
-		tabInfo[26][2]=std::to_string(downDiffQualBases[7]); //Q23
-		tabInfo[27][2]=std::to_string(downDiffQualBases[8]); //Q30
-		tabInfo[28][2]=std::to_string(downDiffQualBases[9]); //Q30
+		Get_qual_Dis(task.downDiffQualReadsBases, downBases, downQualDis);
+		///////////////////////////////////////////////////////////////////////////////////////
+		if (!(P2In->Filter)){
+			cerr << "INFO: "<< task.downInNum <<" reads with a total of "<< task.downInBases <<" bases were input."<<endl;
+		}
+		cerr << "INFO: "<< downNum <<" reads with a total of "<<downBases<<" bases after downsampling."<<endl;
+		if (!(P2In->OutFile).empty()){
+			cerr << "INFO: Downsampled reads were written to: "<<P2In->OutFile<<"."<<endl;
+		}
 	}
 
-
-	///////////////////////////////////////////////////////out test//////////////////////////////////////
-	cerr <<"test\tbefore\tafter\tdown"<<endl;
-	cerr <<"Total reads\t"<<tabInfo[0][0]<<"\t"<<tabInfo[0][1]<<"\t"<<tabInfo[0][2]<<endl;
-	cerr <<"Total bases\t"<<tabInfo[1][0]<<"\t"<<tabInfo[1][1]<<"\t"<<tabInfo[1][2]<<endl;
-	cerr <<"GC content(%)\t"<<tabInfo[2][0]<<"\t"<<tabInfo[2][1]<<"\t"<<tabInfo[2][2]<<endl;
-	cerr <<"Min Length\t"<<tabInfo[3][0]<<"\t"<<tabInfo[3][1]<<"\t"<<tabInfo[3][2]<<endl;
-	cerr <<"Max Length\t"<<tabInfo[4][0]<<"\t"<<tabInfo[4][1]<<"\t"<<tabInfo[4][2]<<endl;
-	cerr <<"Mean Length\t"<<tabInfo[5][0]<<"\t"<<tabInfo[5][1]<<"\t"<<tabInfo[5][2]<<endl;
-	cerr <<"Median Length\t"<<tabInfo[6][0]<<"\t"<<tabInfo[6][1]<<"\t"<<tabInfo[6][2]<<endl;
-	cerr <<"N50 Length\t"<<tabInfo[7][0]<<"\t"<<tabInfo[7][1]<<"\t"<<tabInfo[7][2]<<endl;
-	cerr <<"Mean quality\t"<<tabInfo[8][0]<<"\t"<<tabInfo[8][1]<<"\t"<<tabInfo[8][2]<<endl;
-	cerr <<"Reads"<<endl;
-	cerr <<"Q5\t"<<tabInfo[9][0]<<"\t"<<tabInfo[9][1]<<"\t"<<tabInfo[9][2]<<endl;
-	cerr <<"Q7\t"<<tabInfo[10][0]<<"\t"<<tabInfo[10][1]<<"\t"<<tabInfo[10][2]<<endl;
-	cerr <<"Q10\t"<<tabInfo[11][0]<<"\t"<<tabInfo[11][1]<<"\t"<<tabInfo[11][2]<<endl;
-	cerr <<"Q13\t"<<tabInfo[12][0]<<"\t"<<tabInfo[12][1]<<"\t"<<tabInfo[12][2]<<endl;
-	cerr <<"Q15\t"<<tabInfo[13][0]<<"\t"<<tabInfo[13][1]<<"\t"<<tabInfo[13][2]<<endl;
-	cerr <<"Q17\t"<<tabInfo[14][0]<<"\t"<<tabInfo[14][1]<<"\t"<<tabInfo[14][2]<<endl;
-	cerr <<"Q20\t"<<tabInfo[15][0]<<"\t"<<tabInfo[15][1]<<"\t"<<tabInfo[15][2]<<endl;
-	cerr <<"Q23\t"<<tabInfo[16][0]<<"\t"<<tabInfo[16][1]<<"\t"<<tabInfo[16][2]<<endl;
-	cerr <<"Q30\t"<<tabInfo[17][0]<<"\t"<<tabInfo[17][1]<<"\t"<<tabInfo[17][2]<<endl;
-	cerr <<"Q40\t"<<tabInfo[18][0]<<"\t"<<tabInfo[18][1]<<"\t"<<tabInfo[18][2]<<endl;
-	cerr <<"Bases"<<endl;
-	cerr <<"Q5\t"<<tabInfo[19][0]<<"\t"<<tabInfo[19][1]<<"\t"<<tabInfo[19][2]<<endl;
-	cerr <<"Q7\t"<<tabInfo[20][0]<<"\t"<<tabInfo[20][1]<<"\t"<<tabInfo[20][2]<<endl;
-	cerr <<"Q10\t"<<tabInfo[21][0]<<"\t"<<tabInfo[21][1]<<"\t"<<tabInfo[21][2]<<endl;
-	cerr <<"Q13\t"<<tabInfo[22][0]<<"\t"<<tabInfo[22][1]<<"\t"<<tabInfo[22][2]<<endl;
-	cerr <<"Q15\t"<<tabInfo[23][0]<<"\t"<<tabInfo[23][1]<<"\t"<<tabInfo[23][2]<<endl;
-	cerr <<"Q17\t"<<tabInfo[24][0]<<"\t"<<tabInfo[24][1]<<"\t"<<tabInfo[24][2]<<endl;
-	cerr <<"Q20\t"<<tabInfo[25][0]<<"\t"<<tabInfo[25][1]<<"\t"<<tabInfo[25][2]<<endl;
-	cerr <<"Q23\t"<<tabInfo[26][0]<<"\t"<<tabInfo[26][1]<<"\t"<<tabInfo[26][2]<<endl;
-	cerr <<"Q30\t"<<tabInfo[27][0]<<"\t"<<tabInfo[27][1]<<"\t"<<tabInfo[27][2]<<endl;
-	cerr <<"Q40\t"<<tabInfo[28][0]<<"\t"<<tabInfo[28][1]<<"\t"<<tabInfo[28][2]<<endl;
-	cerr <<"test end"<<endl;
-	//////////////////////////////////////////////////////////////////////////////////////////////
-
+	if (!(P2In->TmpOutFile).empty()){
+		remove((P2In->TmpOutFile).c_str());
+	}
+	
+		ofstream ofs(htmlFileName);
+	
+	if (P2In->Filter && P2In->Downsample) {
+		/// 三列都输出
+		ThreePlotData plotData = {
+			downLenDis,
+			cleanLenDis,
+			rawLenDis,
+			rawQualDis,
+			cleanQualDis,
+			downQualDis,
+			downReadsQual,
+			down5pReadsQual,
+			down3pReadsQual,
+			downBasesContents,
+			down5pBasesContents,
+			down3pBasesContents,
+			rawReadsQual,
+			cleanReadsQual,
+			raw5pReadsQual,
+			clean5pReadsQual,
+			raw3pReadsQual,
+			clean3pReadsQual,
+			rawBasesContents,
+			cleanBasesContents,
+			raw5pBasesContents,
+			clean5pBasesContents,
+			raw3pBasesContents,
+			clean3pBasesContents,
+		};
+		genHTMLReport(
+			ofs, 3,
+			[&tabInfo](ofstream &oofs)
+			{ genTable(oofs, 3, tabInfo); },
+			[&plotData](ofstream &oofs)
+			{ genPlotData(oofs, plotData); });
+	}
+	else if (P2In->Filter && !(P2In->Downsample))
+	{
+		/// 输出第1和第2列
+		TwoPlotData plotData = {
+			rawLenDis,
+			cleanLenDis,
+			rawQualDis,
+			cleanQualDis,
+			rawReadsQual,
+			cleanReadsQual,
+			raw5pReadsQual,
+			clean5pReadsQual,
+			raw3pReadsQual,
+			clean3pReadsQual,
+			rawBasesContents,
+			cleanBasesContents,
+			raw5pBasesContents,
+			clean5pBasesContents,
+			raw3pBasesContents,
+			clean3pBasesContents};
+		genHTMLReport(
+			ofs, 2,
+			[&tabInfo](ofstream &oofs)
+			{ genTable(oofs, 2, tabInfo); },
+			[&plotData](ofstream &oofs)
+			{ genPlotData(oofs, plotData); });
+	}
+	else if (!(P2In->Filter) && P2In->Downsample)
+	{
+		/// 只输出第3列
+		OnePlotData plotData = {
+			downLenDis,
+			downQualDis,
+			downReadsQual,
+			downBasesContents,
+			down5pReadsQual,
+			down5pBasesContents,
+			down3pReadsQual,
+			down3pBasesContents};
+		genHTMLReport(
+			ofs, 1,
+			[&tabInfo](ofstream &oofs)
+			{ genTable(oofs, 1, tabInfo); },
+			[&plotData](ofstream &oofs)
+			{ genPlotData(oofs, plotData); });
+	}
+	ofs.close();
+	cerr << "INFO: Quality control report was written to: "<<htmlFileName<<endl;
+	
 	delete P2In ;
 	return 0;
 }
-
