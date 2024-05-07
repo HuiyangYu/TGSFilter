@@ -61,29 +61,37 @@ Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
 
 ### 3.1 Filter HIFI reads
 ```
-tgsfilter -i hifi.raw.fq.gz -o hifi.clean.fq.gz -t 10
+tgsfilter -i hifi.fq.gz -o hifi.clean.fq.gz -t 16 -x hifi
 ```
-The output files will be generated, namely 'hifi.clean.fq.gz'. <br>
+Two output files will be generated, namely 'hifi.clean.fq.gz' and 'hifi.clean.html'. <br>
 The log information printed on the screen will contain the following content:
 ```
-INFO: searching 5' adapter...
-INFO: searching 3' adapter...
-INFO: 5' adapter: ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT
-INFO: 3' adapter: ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT
-INFO: mean depth of 5' adapter: 18.4444
-INFO: mean depth of 3' adapter: 14.4889
-INFO: trim 5' end length: 0
-INFO: trim 3' end length: 0
-INFO: min mean base quality was set to: 20
+INFO: read type: PacBio highly accurate long reads (hifi).
+INFO: trim 5' end length: 7
+INFO: trim 3' end length: 8
 INFO: min output reads length: 1000
-INFO: 10841385 reads with a total of 199243618211 bases were input.
-INFO: 83 reads were discarded with 52022 bases before filtering.
-INFO: 0 reads were trimmed by 0 bases at the end.
+INFO: base quality scoring: Phred33
+INFO: min Phred average quality score: 20
+INFO: 5' adapter: 
+INFO: 3' adapter: 
+INFO: mean depth of 5' adapter: 0
+INFO: mean depth of 3' adapter: 0
+INFO: set PacBio blunt adapter to trim: ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT
+INFO: 19053754 reads with a total of 353996424711 bases were input.
 INFO: 0 reads were discarded with 0 bases due to low quality.
-INFO: 3 read was discarded with 107204 bases due to a middle adapter.
-INFO: 209263 reads were trimmed by 6878822 bases with an adapter.
-INFO: 0 reads were discarded with 0 bases before output.
-INFO: 10841299 reads with a total of 199236580163 bases were output
+INFO: 3 reads have adapter at 5', 3' and middle.
+INFO: 4 reads have adapter at 5' and middle.
+INFO: 11 reads have adapter at 3' and middle.
+INFO: 138 reads have adapter at 5' and 3' end.
+INFO: 360 reads only have adapter at middle.
+INFO: 51806 reads only have adapter at 5' end.
+INFO: 49952 reads only have adapter at 3' end.
+INFO: 18951480 reads didn't have any adapter.
+INFO: 298375518 bases were trimmed due to the adapter or base content bias.
+INFO: 189 reads were discarded with 111248 bases due to the short length before output.
+INFO: 19053949 reads with a total of 353697937945 bases after filtering.
+INFO: Filtered reads were written to: hifi.clean.fq.gz.
+INFO: Quality control report was written to: hifi.clean.html
 ```
 ### 3.2 Filter ONT reads
 ```
