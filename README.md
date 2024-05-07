@@ -95,28 +95,35 @@ INFO: Quality control report was written to: hifi.clean.html
 ```
 ### 3.2 Filter ONT reads
 ```
-tgsfilter -i ont.raw.fq.gz -o ont.clean.fq.gz -t 10
+tgsfilter -i ont.fq.gz -l 50000 -o ont.clean.fq.gz -t 16 -x ont
 ```
 The log information printed on the screen will contain the following content:
 ```
-INFO: searching 5' adapter...
-INFO: searching 3' adapter...
-INFO: 5' adapter: TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC
+INFO: read type: NanoPore reads (ont).
+INFO: trim 5' end length: 96
+INFO: trim 3' end length: 10
+INFO: min output reads length: 50000
+INFO: base quality scoring: Phred33
+INFO: min Phred average quality score: 10
+INFO: 5' adapter: GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA
 INFO: 3' adapter: 
-INFO: mean depth of 5' adapter: 10721.6
+INFO: mean depth of 5' adapter: 55085.2
 INFO: mean depth of 3' adapter: 0
-INFO: trim 5' end length: 0
-INFO: trim 3' end length: 0
-INFO: min mean base quality was set to: 10
-INFO: min output reads length: 1000
-INFO: 5301056 reads with a total of 166540954904 bases were input.
-INFO: 134711 reads were discarded with 103200391 bases before filtering.
-INFO: 0 reads were trimmed by 0 bases at the end.
-INFO: 644139 reads were discarded with 19209834250 bases due to low quality.
-INFO: 411 read was discarded with 11178458 bases due to a middle adapter.
-INFO: 663024 reads were trimmed by 50778375 bases with an adapter.
-INFO: 4636 reads were discarded with 4456634 bases before output.
-INFO: 4517159 reads with a total of 147161506796 bases were output
+INFO: 3953401 reads with a total of 177832219038 bases were input.
+INFO: 188645 reads were discarded with 6626347642 bases due to low quality.
+INFO: 1 reads have adapter at 5', 3' and middle.
+INFO: 968 reads have adapter at 5' and middle.
+INFO: 1 reads have adapter at 3' and middle.
+INFO: 3160 reads have adapter at 5' and 3' end.
+INFO: 262 reads only have adapter at middle.
+INFO: 3211881 reads only have adapter at 5' end.
+INFO: 580 reads only have adapter at 3' end.
+INFO: 547903 reads didn't have any adapter.
+INFO: 400695818 bases were trimmed due to the adapter or base content bias.
+INFO: 2672989 reads were discarded with 48381650389 bases due to the short length before output.
+INFO: 1092920 reads with a total of 122423525189 bases after filtering.
+INFO: Filtered reads were written to: ont.clean.fq.gz.
+INFO: Quality control report was written to: ont.clean.html
 ```
 ## 4. FAQ
 ### 4.1 How to set min mean base quality (-q)?
