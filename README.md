@@ -97,7 +97,7 @@ INFO: Quality control report was written to: hifi.clean.html
 ```
 tgsfilter -i ont.fq.gz -l 50000 -o ont.clean.fq.gz -t 16 -x ont
 ```
-Two output files will be generated, namely <b>'ont.clean.fq.gz'</b> and <b>'ont.clean.html'</b>.
+Two output files will be generated, namely <b>'ont.clean.fq.gz'</b> and <b>'[ont.clean.html](http://htmlpreview.github.io/?https://github.com/HuiyangYu/TGSFilter/blob/main/html/ont.clean.html)'</b>.
 
 The log information printed on the screen will contain the following content:
 ```
