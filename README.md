@@ -131,10 +131,14 @@ INFO: Filtered reads were written to: ont.clean.fq.gz.
 INFO: Quality control report was written to: ont.clean.html
 ```
 ## 4. FAQ
-### 4.1 How to set min mean base quality (-q)?
-TGSFilter calculates the average quality value (meanQ) of the first 10,000 reads with a length greater than or equal to 5000 bp. If meanQ is greater than or equal to 25, then -q is set to 20; otherwise, it is set to 10.<br>
-
-The parameter '-q 20' is usually used to filter HiFi reads, while '-q 10' is typically used to filter ONT reads.<br>
+### 4.1 How to set min reads quality (-q)?
+TGSFilter allows you to set the minimum read quality using the '-q' option. By default, the '-q' option is set to 0. However, if you do not specify the '-q' parameter but specify the type of reads using the '-x' parameter, the software will automatically set the  minimum read quality:<br> <b>
+'-q 10' for ONT reads,<br> 
+'-q 20' for HiFi reads,<br> 
+'-q 0' for CLR reads.</b>
+### 4.2 How to set min reads length (-l)?
+The default minimum read length outputted by TGSFilter is 1000 bp. Generally, HIFI reads do not require additional length filtering. However, CLR and ONT reads require length filtering based on the sequencing depth. For CLR reads, you can set '-l 10000'; for ONT, '-l' can be set between 20000 and 50000. If the sequencing depth for ONT ultra-long reads exceeds 100X, you can also set '-l 100000'.
+### 4.3 
 
 ### 4.2 How does TGSFilter identify adapter sequences?
 TGSFilter employs three steps for identifying adapter sequences.<br>
