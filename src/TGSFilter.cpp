@@ -27,6 +27,7 @@
 
 using namespace std;
 
+
 uint8_t Base[16] = {0,65,67,0,71,0,0,0,84,0,0,0,0,0,0,78};
 
 int  TGSFilter_usage() {
@@ -35,6 +36,7 @@ int  TGSFilter_usage() {
 		" Input/Output options:\n"
 		"   -i  <str>   input of bam/fasta/fastq file\n"
 		"   -o  <str>   output of fasta/fastq file instead of stdout\n"
+		"   -x  <str>   read type (ont|clr|hifi)\n"
 		" Basic filter options:\n"
 		"   -l  <int>   min length of read to out [1000]\n"
 		"   -L  <int>   max length of read to out\n"
@@ -43,8 +45,8 @@ int  TGSFilter_usage() {
 		"   -n  <int>   read number for base content check [100000]\n"
 		"   -e  <int>   read end length for base content check [150]\n"
 		"   -b <float>  bias (%) of adjacent base content at read end [1]\n"
-		"   -5  <int>   trim bases from the 5' end of the read [auto]\n"
-		"   -3  <int>   trim bases from the 3' end of the read [auto]\n"
+		"   -5  <int>   trim bases from the 5' end of the read\n"
+		"   -3  <int>   trim bases from the 3' end of the read\n"
 		" Adapter filter options:\n"
 		"   -a  <str>   adapter sequence file \n"
 		"   -A          disable reads filter, only for adapter identify\n"
@@ -53,8 +55,8 @@ int  TGSFilter_usage() {
 		"   -m  <int>   min match length for end adapter [15]\n"
 		"   -M  <int>   min match length for middle adapter [35]\n"
 		"   -T  <int>   extra trim length for middle adpter on both side [50]\n"
-		"   -s <float>  min similarity for end adapter [0.75]\n"
-		"   -S <float>  min similarity for middle adapter [0.9]\n"
+		"   -s <float>  min similarity for end adapter\n"
+		"   -S <float>  min similarity for middle adapter\n"
 		"   -D          discard reads with middle adapter instead of split\n"
 		" Downsampling options:\n"
 		"   -g  <str>   genome size (k/m/g)\n"
@@ -65,7 +67,6 @@ int  TGSFilter_usage() {
 		" Other options:\n"
 		"   -c  <int>   compression level (0-9) for compressed output [6]\n"
 		"   -f          force FASTA output (discard quality) \n"
-		"   -x  <str>   read type (ont|clr|hifi)\n"
 		"   -t  <int>   number of threads [16]\n"
 		"   -h          show help [v1.10]\n"
 		"\n";
@@ -93,11 +94,9 @@ class Para_A24 {
 		int TailTrim;
 		//
 		string AdapterFile;
+		bool ONLYAD;
 		int ADNum;
 		int EndLen;
-		int Kmer;
-		int AdapterLen;
-		int AdapterDep;
 		int EndMatchLen;
 		int MidMatchLen;
 		int ExtraLen;
@@ -118,12 +117,13 @@ class Para_A24 {
 		int Infq;
 		int Outfq;
 		bool OUTGZ;
-		bool ONLYAD;
+		
 		int ReadLength;
 
 		Para_A24() {
 			InFile="";
 			OutFile="";
+			readType="";
 			
 			MinLen=1000;
 			MaxLen=2147483647;
@@ -136,16 +136,14 @@ class Para_A24 {
 			TailTrim=-1;
 			
 			AdapterFile="";
+			ONLYAD=false;
 			ADNum=100000;
 			EndLen=150;
-			Kmer=19;
-			AdapterLen=30;
-			AdapterDep=100;
 			EndMatchLen=4;
 			MidMatchLen=35;
 			ExtraLen=50;
-			EndSim=0.75;
-			MidSim=0.9;
+			EndSim=0;
+			MidSim=0;
 			discard=false;
 
 			GenomeSize=0;
@@ -156,12 +154,10 @@ class Para_A24 {
 			Filter=true;
 			
 			FastaOut=false;
-			readType="";
 			n_thread=16;
 			Infq=3;
 			Outfq=3;
 			OUTGZ=false;
-			ONLYAD=false;
 			ReadLength=0;
 		}
 };
@@ -212,6 +208,11 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			if(i + 1 == argc) {LogLackArg(flag); return 1;}
 			i++;
 			P2In->OutFile=argv[i];
+		}
+		else if (flag == "x" ) {
+			if(i + 1 == argc) {LogLackArg(flag); return 1;}
+			i++;
+			P2In->readType=argv[i];
 		}
 
 		//Basic filter options
@@ -358,12 +359,6 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 		else if (flag  ==  "f") {
 			P2In->FastaOut=true;
 		}
-		else if (flag == "x" ) {
-			if(i + 1 == argc) {LogLackArg(flag); return 1;}
-			i++;
-			P2In->readType=argv[i];
-		}
-
 		else if (flag  ==  "t") {
 			if(i + 1 == argc) {LogLackArg(flag) ; return 1;}
 			i++;
@@ -380,17 +375,20 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 
 	// check input and output
 	if ((P2In->InFile).empty()) {
-		cerr<< "Error: -i lack argument for the must"<<endl;
+		cerr<< "Error: lack argument for the must: -i "<<endl;
 		exit(-1);
-	}
-
-	if (access((P2In->InFile).c_str(), 0) != 0) {
-		cerr<<"Error: Can't find this file for -i "<<(P2In->InFile)<<endl;
-		exit(-1);
+	}else{
+		if (access((P2In->InFile).c_str(), 0) != 0) {
+			cerr<<"Error: Can't find this file for -i "<<(P2In->InFile)<<endl;
+			exit(-1);
+		}
 	}
 
 	//check read type
-	if (!(P2In->readType).empty()){
+	if ((P2In->readType).empty()) {
+		cerr<< "Error: lack argument for the must: -x "<<endl;
+		exit(-1);
+	}else{
 		string readType = P2In->readType;
 		if (readType == "CLR" || readType == "clr"){
 			cerr <<"INFO: read type: PacBio continuous long read (clr)."<<endl;
@@ -409,6 +407,30 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			exit(-1);
 		}
 	}
+
+	//set read type
+	if (P2In->MidSim == 0){
+		if (P2In->readType == "hifi"){
+			P2In->MidSim = 0.95;
+		}else if (P2In->readType == "clr"){
+			P2In->MidSim = 0.9;
+		}else if (P2In->readType == "ont"){
+			P2In->MidSim = 0.9;
+		}
+	}
+
+	if (P2In->EndSim==0){
+		if (P2In->readType == "hifi"){
+			P2In->EndSim=0.9;
+		}else if (P2In->readType == "clr"){
+			P2In->EndSim=0.8;
+		}else if (P2In->readType == "ont"){
+			P2In->EndSim=0.75;
+		}
+	}
+
+	cerr <<"INFO: min similarity for middle adapter: "<<P2In->MidSim<<endl;
+	cerr <<"INFO: min similarity for end adapter: "<<P2In->EndSim<<endl;
 	
 	//check downsampling
 	if (P2In->DesiredNum > 0 || P2In->DesiredFrac > 0){
@@ -809,12 +831,14 @@ string rev_comp_seq(const string& dna) {
 		reverse_complement += complement[dna[i]];
 	}
 	return reverse_complement;
-}
+} 
 
 class GetFilterParameterTask {
 public:
-    GetFilterParameterTask(Para_A24 *P2In)
+    GetFilterParameterTask(Para_A24 *P2In, 
+						  std::vector<std::string> adapterLib)
                           : P2In(P2In),
+						    adapterLib(adapterLib),
                             InPath(P2In->InFile),
                             seqNum(0),
                             maxSeq(0),
@@ -829,13 +853,11 @@ public:
 							adapter5p(),
 							adapter3p(),
 							adapterDep5p(0),
-							adapterDep3p(0),
-							adapterLib(22) {}
+							adapterDep3p(0) {}
 
     int trim5p, trim3p;
     std::string adapter5p, adapter3p;
     float adapterDep5p, adapterDep3p;
-	std::vector<std::string> adapterLib;
 
     void start() {
 
@@ -1078,30 +1100,6 @@ private:
 
     void adapterSearch(std::vector<std::string> &reads, string flag){
 
-		adapterLib[0]="ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT"; // Pacific Biosciences Blunt Adapter
-		adapterLib[1]="ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT";
-		adapterLib[2]="AAAAAAAAAAAAAAAAAATTAACGGAGGAGGAGGA"; // Pacific Biosciences C2 Primer
-		adapterLib[3]="TCCTCCTCCTCCGTTAATTTTTTTTTTTTTTTTTT"; 
-		adapterLib[4]="AATGTACTTCGTTCAGTTACGTATTGCT"; // Ligation
-		adapterLib[5]="AGCAATACGTAACTGAACGAAGTACATT";
-		adapterLib[6]="GCAATACGTAACTGAACGAAGT"; // Ligation
-		adapterLib[7]="ACTTCGTTCAGTTACGTATTGC";
-		adapterLib[8]="GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"; // Rapid
-		adapterLib[9]="TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC";
-		adapterLib[10]="GGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCCT"; // 1D^2
-		adapterLib[11]="AGGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCC";
-		adapterLib[12]="GGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCCAGCAAT"; // 1D^2
-		adapterLib[13]="ATTGCTGGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCC";
-		adapterLib[14]="TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT"; // Ligation(LA) / Native(NA) / Rapid(RA) / Rapid T(RAT) top strand
-		adapterLib[15]="AGCAATACGTAACTGAACGAAGTACAGGAAAAAAAA";
-		adapterLib[16]="GCAATACGTAACTGAACGAAGTACAGG"; // Ligation Adapter bottom strand
-		adapterLib[17]="CCTGTACTTCGTTCAGTTACGTATTGC";
-		adapterLib[18]="ACGTAACTGAACGAAGTACAGG"; // Native Adapter bottom strand
-		adapterLib[19]="CCTGTACTTCGTTCAGTTACGT";
-		adapterLib[20]="CTTGCGGGCGGCGGACTCTCCTCTGAAGATAGAGCGACAGGCAAG"; // cDNA RT Adapter (CRTA)
-		adapterLib[21]="CTTGCCTGTCGCTCTATCTTCAGAGGAGAGTCCGCCGCCCGCAAG";
-
-        //
 		std::unordered_map<int, int> maps;
         float minSim=P2In->MidSim;
 		
@@ -1161,6 +1159,7 @@ private:
     }
 
     Para_A24 *P2In;
+	std::vector<std::string> adapterLib;
     std::string InPath, OutPath;
     int seqNum, maxSeq, checkLen, minLen, minQ, maxQ;
     std::vector<std::string> seqs5p, seqs3p;
@@ -2785,8 +2784,10 @@ void Get_adapters(Para_A24 * P2In){
 		delete ks;
 	}
 
+	int num=0;
 	for (const std::string& adapter : adapters) {
-		cerr <<"INFO: input adapter: "<< adapter << endl;
+		num++;
+		cerr <<"INFO: input adapter "<<num<<" :"<< adapter << endl;
 	}
 
 }
@@ -2815,6 +2816,30 @@ int main (int argc, char *argv[ ]) {
 	complement['m']='k'; complement['r']='y';  
 	complement['w']='w'; complement['s']='s';  
 	complement['y']='r'; complement['k']='m';
+
+	std::vector<std::string> adapterLib(22);
+	adapterLib[0]="ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT"; // Pacific Biosciences Blunt Adapter
+	adapterLib[1]="ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT";
+	adapterLib[2]="AAAAAAAAAAAAAAAAAATTAACGGAGGAGGAGGA"; // Pacific Biosciences C2 Primer
+	adapterLib[3]="TCCTCCTCCTCCGTTAATTTTTTTTTTTTTTTTTT"; 
+	adapterLib[4]="AATGTACTTCGTTCAGTTACGTATTGCT"; // Ligation
+	adapterLib[5]="AGCAATACGTAACTGAACGAAGTACATT";
+	adapterLib[6]="GCAATACGTAACTGAACGAAGT"; // Ligation
+	adapterLib[7]="ACTTCGTTCAGTTACGTATTGC";
+	adapterLib[8]="GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"; // Rapid
+	adapterLib[9]="TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC";
+	adapterLib[10]="GGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCCT"; // 1D^2
+	adapterLib[11]="AGGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCC";
+	adapterLib[12]="GGAACCTCTCTGACTTGGAACCTCTCTGACAAAAAGGTTAAACACCCAAGCAGACGCCAGCAAT"; // 1D^2
+	adapterLib[13]="ATTGCTGGCGTCTGCTTGGGTGTTTAACCTTTTTGTCAGAGAGGTTCCAAGTCAGAGAGGTTCC";
+	adapterLib[14]="TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT"; // Ligation(LA) / Native(NA) / Rapid(RA) / Rapid T(RAT) top strand
+	adapterLib[15]="AGCAATACGTAACTGAACGAAGTACAGGAAAAAAAA";
+	adapterLib[16]="GCAATACGTAACTGAACGAAGTACAGG"; // Ligation Adapter bottom strand
+	adapterLib[17]="CCTGTACTTCGTTCAGTTACGTATTGC";
+	adapterLib[18]="ACGTAACTGAACGAAGTACAGG"; // Native Adapter bottom strand
+	adapterLib[19]="CCTGTACTTCGTTCAGTTACGT";
+	adapterLib[20]="CTTGCGGGCGGCGGACTCTCCTCTGAAGATAGAGCGACAGGCAAG"; // cDNA RT Adapter (CRTA)
+	adapterLib[21]="CTTGCCTGTCGCTCTATCTTCAGAGGAGAGTCCGCCGCCCGCAAG";
 
 	string InPath=(P2In->InFile);
 	P2In->Infq = GetFileType(InPath);
@@ -2881,7 +2906,7 @@ int main (int argc, char *argv[ ]) {
 	string downInput;
 	if (P2In->Filter){
 		///////////////////////////////////get filter parameter////////////////////////////////////////
-		GetFilterParameterTask Parameter(P2In);
+		GetFilterParameterTask Parameter(P2In, adapterLib);
     	Parameter.start();
 		if ((P2In->HeadTrim)<0){
 			P2In->HeadTrim=Parameter.trim5p;
@@ -2936,19 +2961,14 @@ int main (int argc, char *argv[ ]) {
 			}
 
 			if (adapter_5p.empty() && adapter_3p.empty()){
-				
 				if (P2In->readType == "hifi" || P2In->readType == "clr"){
-					string pacbioAdpter_for=Parameter.adapterLib[0];
-					string pacbioAdpter_rev=Parameter.adapterLib[1];
-					adapters.insert(pacbioAdpter_for);
-					adapters.insert(pacbioAdpter_rev);
-					cerr <<"INFO: set PacBio blunt adapter to trim: "<<pacbioAdpter_for<<endl;
+					adapters.insert(adapterLib[0]);
+					adapters.insert(adapterLib[1]);
+					cerr <<"INFO: set PacBio blunt adapter to trim: "<<adapterLib[0]<<endl;
 				}else if (P2In->readType == "ont"){
-					string ontAdpter_for=Parameter.adapterLib[8];
-					string ontAdpter_rev=Parameter.adapterLib[9];
-					adapters.insert(ontAdpter_for);
-					adapters.insert(ontAdpter_rev);
-					cerr <<"INFO: set NanoPore rapid adapter to trim: "<<ontAdpter_for<<endl;
+					adapters.insert(adapterLib[8]);
+					adapters.insert(adapterLib[9]);
+					cerr <<"INFO: set NanoPore rapid adapter to trim: "<<adapterLib[8]<<endl;
 				}
 			}
 		}
