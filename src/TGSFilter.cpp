@@ -32,43 +32,46 @@ uint8_t Base[16] = {0,65,67,0,71,0,0,0,84,0,0,0,0,0,0,78};
 
 int  TGSFilter_usage() {
 	cout <<""
-		"Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz\n"
+		"Usage: tgsfilter -i TGS.raw.fq.gz -x ont -o TGS.clean.fq.gz\n"
 		" Input/Output options:\n"
-		"   -i  <str>   input of bam/fasta/fastq file\n"
-		"   -o  <str>   output of fasta/fastq file instead of stdout\n"
-		"   -x  <str>   read type (ont|clr|hifi)\n"
+		"   -i   <str>   input of bam/fasta/fastq file\n"
+		"   -x   <str>   read type (ont|clr|hifi)\n"
+		"   -o   <str>   output of fasta/fastq file instead of stdout\n"
 		" Basic filter options:\n"
-		"   -l  <int>   min length of read to out [1000]\n"
-		"   -L  <int>   max length of read to out\n"
-		"   -q <float>  min Phred average quality score\n"
-		"   -Q <float>  max Phred average quality score\n"
-		"   -n  <int>   read number for base content check [100000]\n"
-		"   -e  <int>   read end length for base content check [150]\n"
-		"   -b <float>  bias (%) of adjacent base content at read end [1]\n"
-		"   -5  <int>   trim bases from the 5' end of the read\n"
-		"   -3  <int>   trim bases from the 3' end of the read\n"
+		"   -l   <int>   min length of read to out [1000]\n"
+		"   -L   <int>   max length of read to out\n"
+		"   -q  <float>  min Phred average quality score\n"
+		"   -Q  <float>  max Phred average quality score\n"
+		"   -n   <int>   read number for base content check [100000]\n"
+		"   -e   <int>   read end length for base content check [150]\n"
+		"   -b  <float>  bias (%) of adjacent base content at read end [1]\n"
+		"   -5   <int>   trim bases from the 5' end of the read\n"
+		"   -3   <int>   trim bases from the 3' end of the read\n"
 		" Adapter filter options:\n"
-		"   -a  <str>   adapter sequence file \n"
-		"   -A          disable reads filter, only for adapter identify\n"
-		"   -N  <int>   read number for adapter identify [100000]\n"
-		"   -E  <int>   read end length for adapter trim [150]\n"
-		"   -m  <int>   min match length for end adapter [15]\n"
-		"   -M  <int>   min match length for middle adapter [35]\n"
-		"   -T  <int>   extra trim length for middle adpter on both side [50]\n"
-		"   -s <float>  min similarity for end adapter\n"
-		"   -S <float>  min similarity for middle adapter\n"
-		"   -D          discard reads with middle adapter instead of split\n"
+		"   -a   <str>   adapter sequence file \n"
+		"   -A           disable reads filter, only for adapter identify\n"
+		"   -N   <int>   read number for adapter identify [100000]\n"
+		"   -E   <int>   read end length for adapter trim [150]\n"
+		"   -m   <int>   min match length for end adapter [15]\n"
+		"   -M   <int>   min match length for middle adapter [35]\n"
+		"   -T   <int>   extra trim length for middle adpter on both side [50]\n"
+		"   -s  <float>  min similarity for end adapter\n"
+		"   -S  <float>  min similarity for middle adapter\n"
+		"   -D           discard reads with middle adapter instead of split\n"
 		" Downsampling options:\n"
-		"   -g  <str>   genome size (k/m/g)\n"
-		"   -d  <int>   downsample to the desired coverage (requires -g) \n"
-		"   -r  <int>   downsample to the desired number of reads \n"
-		"   -R <float>  downsample to the desired fraction of reads \n"
-		"   -F          disable reads filter, only for downsampling\n"
+		"   -g   <str>   genome size (k/m/g)\n"
+		"   -d   <int>   downsample to the desired coverage (requires -g) \n"
+		"   -r   <int>   downsample to the desired number of reads \n"
+		"   -R  <float>  downsample to the desired fraction of reads \n"
+		"   -k   <int>   kmer size for repeat evaluations [11] \n"
+		"   -p   <int>   min repeat length of reads [0] \n"
+		"   -F           disable reads filter, only for downsampling\n"
 		" Other options:\n"
-		"   -c  <int>   compression level (0-9) for compressed output [6]\n"
-		"   -f          force FASTA output (discard quality) \n"
-		"   -t  <int>   number of threads [16]\n"
-		"   -h          show help [v1.10]\n"
+		"   --qc         disable all filter, only for quality control \n"
+		"   -f           force FASTA output (discard quality) \n"
+		"   -c   <int>   compression level (0-9) for compressed output [6]\n"
+		"   -t   <int>   number of threads [16]\n"
+		"   -h           show help [v1.11]\n"
 		"\n";
 	return 1;
 }
@@ -110,7 +113,10 @@ class Para_A24 {
 		float DesiredFrac;
 		bool Downsample;
 		bool Filter;
+		int Kmer;
+		int MinRepeat;
 		//
+		bool OnlyQC;
 		bool FastaOut;
 		string readType;
 		int n_thread;
@@ -151,8 +157,11 @@ class Para_A24 {
 			DesiredNum=0;
 			DesiredFrac=0;
 			Downsample=false;
+			Kmer=11;
+			MinRepeat=0;
 			Filter=true;
 			
+			OnlyQC=false;
 			FastaOut=false;
 			n_thread=16;
 			Infq=3;
@@ -346,11 +355,24 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			i++;
 			P2In->DesiredFrac=atof(argv[i]);
 		}
+		else if (flag == "k"){
+			if(i + 1 == argc) {LogLackArg(flag); return 1;}
+			i++;
+			P2In->Kmer=atoi(argv[i]);
+		}
+		else if (flag == "p"){
+			if(i + 1 == argc) {LogLackArg(flag); return 1;}
+			i++;
+			P2In->MinRepeat=atoi(argv[i]);
+		}
 		else if (flag == "F"){
 			P2In->Filter=false;
 		}
 
 		//Other options
+		else if (flag  ==  "qc") {
+			P2In->OnlyQC=true;
+		}
 		else if (flag  ==  "c") {
 			if(i + 1 == argc) {LogLackArg(flag) ; return 1;}
 			i++;
@@ -384,53 +406,59 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 		}
 	}
 
+	if (P2In->OnlyQC){
+		P2In->Filter=false;
+	}
+
 	//check read type
-	if ((P2In->readType).empty()) {
-		cerr<< "Error: lack argument for the must: -x "<<endl;
-		exit(-1);
-	}else{
-		string readType = P2In->readType;
-		if (readType == "CLR" || readType == "clr"){
-			cerr <<"INFO: read type: PacBio continuous long read (clr)."<<endl;
-			P2In->readType="clr";
-		}else if (readType == "HIFI" || readType == "hifi"){
-			cerr <<"INFO: read type: PacBio highly accurate long reads (hifi)."<<endl;
-			P2In->readType = "hifi";
-		}else if (readType == "CCS" || readType == "ccs"){
-			cerr <<"INFO: read type: PacBio highly accurate long reads (hifi)."<<endl;
-			P2In->readType = "hifi";
-		}else if (readType == "ONT" || readType == "ont"){
-			cerr <<"INFO: read type: NanoPore reads (ont)."<<endl;
-			P2In->readType = "ont";
-		}else{
-			cerr <<"Error: read type should be : clr/hifi/ccs/ont or CLR/HIFI/CCS/ONT."<<endl;
+	if (P2In->Filter){
+		if ((P2In->readType).empty()) {
+			cerr<< "Error: lack argument for the must: -x "<<endl;
 			exit(-1);
+		}else{
+			string readType = P2In->readType;
+			if (readType == "CLR" || readType == "clr"){
+				cerr <<"INFO: read type: PacBio continuous long read (clr)."<<endl;
+				P2In->readType="clr";
+			}else if (readType == "HIFI" || readType == "hifi"){
+				cerr <<"INFO: read type: PacBio highly accurate long reads (hifi)."<<endl;
+				P2In->readType = "hifi";
+			}else if (readType == "CCS" || readType == "ccs"){
+				cerr <<"INFO: read type: PacBio highly accurate long reads (hifi)."<<endl;
+				P2In->readType = "hifi";
+			}else if (readType == "ONT" || readType == "ont"){
+				cerr <<"INFO: read type: NanoPore reads (ont)."<<endl;
+				P2In->readType = "ont";
+			}else{
+				cerr <<"Error: read type should be : clr/hifi/ccs/ont or CLR/HIFI/CCS/ONT."<<endl;
+				exit(-1);
+			}
 		}
-	}
 
-	//set read type
-	if (P2In->MidSim == 0){
-		if (P2In->readType == "hifi"){
-			P2In->MidSim = 0.95;
-		}else if (P2In->readType == "clr"){
-			P2In->MidSim = 0.9;
-		}else if (P2In->readType == "ont"){
-			P2In->MidSim = 0.9;
+		//set read type
+		if (P2In->MidSim == 0){
+			if (P2In->readType == "hifi"){
+				P2In->MidSim = 0.95;
+			}else if (P2In->readType == "clr"){
+				P2In->MidSim = 0.9;
+			}else if (P2In->readType == "ont"){
+				P2In->MidSim = 0.9;
+			}
 		}
-	}
 
-	if (P2In->EndSim==0){
-		if (P2In->readType == "hifi"){
-			P2In->EndSim=0.9;
-		}else if (P2In->readType == "clr"){
-			P2In->EndSim=0.8;
-		}else if (P2In->readType == "ont"){
-			P2In->EndSim=0.75;
+		if (P2In->EndSim==0){
+			if (P2In->readType == "hifi"){
+				P2In->EndSim=0.9;
+			}else if (P2In->readType == "clr"){
+				P2In->EndSim=0.8;
+			}else if (P2In->readType == "ont"){
+				P2In->EndSim=0.75;
+			}
 		}
-	}
 
-	cerr <<"INFO: min similarity for middle adapter: "<<P2In->MidSim<<endl;
-	cerr <<"INFO: min similarity for end adapter: "<<P2In->EndSim<<endl;
+		cerr <<"INFO: min similarity for middle adapter: "<<P2In->MidSim<<endl;
+		cerr <<"INFO: min similarity for end adapter: "<<P2In->EndSim<<endl;
+	}
 	
 	//check downsampling
 	if (P2In->DesiredNum > 0 || P2In->DesiredFrac > 0){
@@ -450,18 +478,23 @@ int TGSFilter_cmd(int argc, char **argv, Para_A24 * P2In) {
 			P2In->Downsample=false;
 		}
 	}
+
+	if (!(P2In->Filter) && !(P2In->Downsample) && !(P2In->OnlyQC)){
+		cerr <<"Error: Please set functional parameters for filter, downsampling or quality control."<<endl;
+		exit(-1);
+	}
 	
 	//check threads
 	unsigned int maxThreads = std::thread::hardware_concurrency();
 	if (maxThreads > 0 && P2In->n_thread > maxThreads - 1){
 		P2In->n_thread = maxThreads-1;
-		if (P2In->n_thread <= 24){
+		if (P2In->n_thread <= 32){
 			cerr <<"Warning: reset -t to: "<<P2In->n_thread<<endl;
 		}
 	}
 
-	if (P2In->n_thread > 24){
-		P2In->n_thread=24;
+	if (P2In->n_thread > 32){
+		P2In->n_thread = 32;
 		cerr <<"Warning: reset -t to: "<<P2In->n_thread<<endl;
 	}
 	
@@ -865,6 +898,7 @@ public:
         if (checkLen < P2In->BCLen){
             checkLen = P2In->BCLen;
         }
+
 		if (checkLen < 100){
 			checkLen = 100;
 		}
@@ -884,24 +918,30 @@ public:
 		}else if((P2In->Infq)==1 || (P2In->Infq)==0){
 			read_fastx();
 		}
-		Get_qType();
 
-        std::vector<std::thread> threads;
-        
-		if ((P2In->HeadTrim)<0){
-        	threads.emplace_back(&GetFilterParameterTask::CheckBaseContent, this, ref(seqs5p), "5p");
+		if ((P2In->Infq)==1 || (P2In->Infq)==2){
+			Get_qType();
 		}
-		if ((P2In->TailTrim)<0){
-        	threads.emplace_back(&GetFilterParameterTask::CheckBaseContent, this, ref(seqs3p), "3p");
-		}
+		
+		if (P2In->Filter){
 
-		if ((P2In->AdapterFile).empty()){
-        	threads.emplace_back(&GetFilterParameterTask::adapterSearch, this, ref(seqs5p), "5p");
-        	threads.emplace_back(&GetFilterParameterTask::adapterSearch, this, ref(seqs3p), "3p");
-		}
+			std::vector<std::thread> threads;
+			
+			if ((P2In->HeadTrim)<0){
+				threads.emplace_back(&GetFilterParameterTask::CheckBaseContent, this, ref(seqs5p), "5p");
+			}
+			if ((P2In->TailTrim)<0){
+				threads.emplace_back(&GetFilterParameterTask::CheckBaseContent, this, ref(seqs3p), "3p");
+			}
 
-        for (auto& thread : threads) {
-			thread.join();
+			if ((P2In->AdapterFile).empty()){
+				threads.emplace_back(&GetFilterParameterTask::adapterSearch, this, ref(seqs5p), "5p");
+				threads.emplace_back(&GetFilterParameterTask::adapterSearch, this, ref(seqs3p), "3p");
+			}
+
+			for (auto& thread : threads) {
+				thread.join();
+			}
 		}
     }
 
@@ -923,12 +963,12 @@ private:
             }
 			seqNum++;
 
-            string seq5p=seq.substr(0, checkLen);
-            string seq3p=rev_comp_seq(seq.substr(seqLen-checkLen));
-            qual=qual.substr(0, checkLen);
-            seqs5p.push_back(seq5p);
-            seqs3p.push_back(seq3p);
+			string seq5p=seq.substr(0, checkLen);
+			string seq3p=rev_comp_seq(seq.substr(seqLen-checkLen));
+			seqs5p.push_back(seq5p);
+			seqs3p.push_back(seq3p);
 
+			qual=qual.substr(0, checkLen);
 			for (char q : qual) {
 				if(minQ > q) {
 					minQ = q;
@@ -983,15 +1023,15 @@ private:
 				}
 			}
 
-            for (int i = (seqLen-checkLen); i < seqLen; ++i) {
+			
+			for (int i = (seqLen-checkLen); i < seqLen; ++i) {
 				char base=Base[bam_seqi(seqChar, i)];
 				seq3p += base;
 			}
 
-            seq3p=rev_comp_seq(seq3p);
-            seqs5p.push_back(seq5p);
-            seqs3p.push_back(seq3p);
-            
+			seq3p=rev_comp_seq(seq3p);
+			seqs5p.push_back(seq5p);
+			seqs3p.push_back(seq3p); 
 		}
         bam_destroy1(bamRecord);
         bam_hdr_destroy(bamHeader);
@@ -1011,6 +1051,9 @@ private:
 		} else {
 			qType=64;
 		}
+
+		cerr << "INFO: base quality scoring: Phred"<<qType<<endl;
+
 		minQ-=qType;
 		maxQ-=qType;
 
@@ -1090,6 +1133,10 @@ private:
 			}
         }
         //
+		if (trim5p > P2In->BCLen){
+			trim5p = P2In->BCLen;
+		}
+
         if (flag=="5p"){
             trim5p=trimLen;
         }else if (flag=="3p"){
@@ -1102,6 +1149,9 @@ private:
 
 		std::unordered_map<int, int> maps;
         float minSim=P2In->MidSim;
+		if (minSim < 0.9){
+			minSim = 0.9;
+		}
 		
         for (const auto& ts : reads) {
             int tsLen=ts.length();
@@ -1428,7 +1478,7 @@ double CalcAvgQuality(const string &seq, const string &qual,
     return static_cast<double>(sumQ) / seqLen;
 }
 
-void Get_5p_base_qual(const string &seq, const string &qual, 
+void Get_5p_base_qual(Para_A24 * P2In, const string &seq, const string &qual, 
                       std::vector<std::vector<uint64_t>> &baseQual,
                       std::vector<std::vector<uint64_t>> &baseCounts) {
     uint64_t seqLen = seq.length();
@@ -1437,7 +1487,7 @@ void Get_5p_base_qual(const string &seq, const string &qual,
         return;
     }
 
-	int length=150;
+	int length = P2In->BCLen;
 	if (length>seqLen) {
 		length=seqLen;
 	}
@@ -1475,7 +1525,7 @@ void Get_5p_base_qual(const string &seq, const string &qual,
     }
 }
 
-void Get_3p_base_qual(const string &seq, const string &qual, 
+void Get_3p_base_qual(Para_A24 * P2In, const string &seq, const string &qual, 
                       std::vector<std::vector<uint64_t>> &baseQual,
                       std::vector<std::vector<uint64_t>> &baseCounts) {
     uint64_t seqLen = seq.length();
@@ -1484,7 +1534,7 @@ void Get_3p_base_qual(const string &seq, const string &qual,
         return;
     }
 
-	int length=150;
+	int length = P2In->BCLen;
 	if (length>seqLen) {
 		length=seqLen;
 	}
@@ -1555,14 +1605,14 @@ void Get_base_counts(const string &seq,
     }
 }
 
-void Get_5p_base_counts(const string &seq, 
-                    std::vector<std::vector<uint64_t>> &baseCounts){
+void Get_5p_base_counts(Para_A24 * P2In, const string &seq, 
+                    	std::vector<std::vector<uint64_t>> &baseCounts){
     uint64_t seqLen = seq.length();
     if (seqLen == 0){
         return;
     }
 
-	int length=150;
+	int length = P2In->BCLen;
 	if (length>seqLen) {
 		length=seqLen;
 	}
@@ -1590,14 +1640,14 @@ void Get_5p_base_counts(const string &seq,
     }
 }
 
-void Get_3p_base_counts(const string &seq, 
-                    std::vector<std::vector<uint64_t>> &baseCounts){
+void Get_3p_base_counts(Para_A24 * P2In, const string &seq, 
+                    	std::vector<std::vector<uint64_t>> &baseCounts){
     uint64_t seqLen = seq.length();
     if (seqLen == 0){
         return;
     }
 
-	int length=150;
+	int length = P2In->BCLen;
 	if (length>seqLen) {
 		length=seqLen;
 	}
@@ -1650,6 +1700,58 @@ std::string newSeqName(const std::string& rawName, int number) {
     return newName;
 }
 
+int GetKmerCount(const char* seq, int seqLen, int k) {
+    std::unordered_set<std::bitset<64>> kmers;
+
+    std::bitset<64> kmer;
+    for (int i = 0; i < k; ++i) {
+        kmer <<= 2;
+        switch (seq[i]) {
+            case 'A':
+                kmer |= 0;
+                break;
+            case 'C':
+                kmer |= 1;
+                break;
+            case 'G':
+                kmer |= 2;
+                break;
+            case 'T':
+                kmer |= 3;
+                break;
+            default:
+                break;
+        }
+    }
+    kmers.insert(kmer);
+
+    for (int i = k; i < seqLen; ++i) {
+        kmer <<= 2;
+        switch (seq[i]) {
+            case 'A':
+                kmer |= 0;
+                break;
+            case 'C':
+                kmer |= 1;
+                break;
+            case 'G':
+                kmer |= 2;
+                break;
+            case 'T':
+                kmer |= 3;
+                break;
+            default:
+                break;
+        }
+        kmer &= (1ULL << (2 * k)) - 1;
+        kmers.insert(kmer);
+    }
+
+    int uniqueKmerCount = kmers.size();
+    int totalKmerCount = seqLen - k + 1;
+    return totalKmerCount - uniqueKmerCount;
+}
+
 class TGSFilterTask {
 public:
     TGSFilterTask(Para_A24 *P2In)
@@ -1671,7 +1773,7 @@ public:
 		  rawLens(), 
 		  cleanLens(),
 		  worker_count(P2In->n_thread),
-		  DropInfo(P2In->n_thread, std::vector<uint64_t>(13,0)),
+		  DropInfo(P2In->n_thread, std::vector<uint64_t>(17,0)),
 		  rawDiffQualReadsBases(P2In->n_thread, std::vector<uint64_t>(256,0)),
 		  cleanDiffQualReadsBases(P2In->n_thread, std::vector<uint64_t>(256,0)),
           rawBaseQual(P2In->n_thread),
@@ -1719,12 +1821,14 @@ public:
 
 		//
 		std::vector<std::thread> output_threads; // output
-		if (P2In->OUTGZ && !(P2In->Downsample)){
-			output_threads.emplace_back(&TGSFilterTask::write_output_gz, this);
-		} else {
-			output_threads.emplace_back(&TGSFilterTask::write_output, this);
+		if (!(P2In->OnlyQC)){
+			if (P2In->OUTGZ && !(P2In->Downsample)){
+				output_threads.emplace_back(&TGSFilterTask::write_output_gz, this);
+			} else {
+				output_threads.emplace_back(&TGSFilterTask::write_output, this);
+			}
 		}
-
+		
 		// Wait for all threads to finish
 		for (auto& read_thread : read_threads) {
 			read_thread.join();
@@ -1837,22 +1941,28 @@ private:
 					double rawQuality;
 					rawQuality = CalcAvgQuality(rawSeq, rawQual, rawBaseQual[tid], rawBaseCounts[tid]);
 					rawDiffQualReadsBases[tid][int(rawQuality)]+=rawSeqLen;
-					Get_5p_base_qual(rawSeq, rawQual, raw5pBaseQual[tid], raw5pBaseCounts[tid]);
-					Get_3p_base_qual(rawSeq, rawQual, raw3pBaseQual[tid], raw3pBaseCounts[tid]);
-					if ((rawQuality < (P2In->MinQ)) || (rawQuality > (P2In->MaxQ))){
-						DropInfo[tid][0]++;
-						DropInfo[tid][1]+=rawSeqLen;
-						filterNum++;
-						continue;
+					Get_5p_base_qual(P2In, rawSeq, rawQual, raw5pBaseQual[tid], raw5pBaseCounts[tid]);
+					Get_3p_base_qual(P2In, rawSeq, rawQual, raw3pBaseQual[tid], raw3pBaseCounts[tid]);
+					if (P2In->Filter){
+						if ((rawQuality < (P2In->MinQ)) || (rawQuality > (P2In->MaxQ))){
+							DropInfo[tid][0]++;
+							DropInfo[tid][1]+=rawSeqLen;
+							filterNum++;
+							continue;
+						}
 					}
 				} else {
                     Get_base_counts(rawSeq, rawBaseCounts[tid]);
-					Get_5p_base_counts(rawSeq, raw5pBaseCounts[tid]);
-					Get_3p_base_counts(rawSeq, raw3pBaseCounts[tid]);
+					Get_5p_base_counts(P2In, rawSeq, raw5pBaseCounts[tid]);
+					Get_3p_base_counts(P2In, rawSeq, raw3pBaseCounts[tid]);
                 }
 
 				std::vector<std::vector<int>> keepRegions;
-				adapterMap(P2In, rawSeq, rawSeqLen, keepRegions, DropInfo[tid]);
+				if (P2In->Filter){
+					adapterMap(P2In, rawSeq, rawSeqLen, keepRegions, DropInfo[tid]);
+				}else{
+					keepRegions.push_back({0, rawSeqLen});
+				}
 
 				string cleanName;
 				string cleanSeq;
@@ -1861,36 +1971,51 @@ private:
 				int cleanSeqLen;
 				int start;
 				
-				int passNum=0;
+				int passNum=1;
 
-				if (keepRegions.size()>0){
+				if (keepRegions.size()>0 && !(P2In->OnlyQC)){
 					for (const auto& region : keepRegions) {
-						passNum++;
 						start = region[0];
 						cleanSeqLen = region[1];
 						cleanSeq = rawSeq.substr(start,cleanSeqLen);
-
+						//
+						if ((P2In->MinRepeat) > 0){
+							int repeatLen = GetKmerCount(cleanSeq.c_str(), cleanSeqLen, P2In->Kmer);
+							if (repeatLen < (P2In->MinRepeat)){
+								DropInfo[tid][15]++;
+								DropInfo[tid][16]+=cleanSeqLen;
+								continue;
+							}
+						}
+						//
                         if (rawQualLen > 0){
                             cleanQual=rawQual.substr(start,cleanSeqLen);
 							double cleanQuality;
                             cleanQuality = CalcAvgQuality(cleanSeq, cleanQual, cleanBaseQual[tid], cleanBaseCounts[tid]);
+							if (P2In->Filter){
+								if ((cleanQuality < (P2In->MinQ)) || (cleanQuality > (P2In->MaxQ))){
+									DropInfo[tid][13]++;
+									DropInfo[tid][14]+=cleanSeqLen;
+									continue;
+								}
+							}
 							cleanDiffQualReadsBases[tid][int(cleanQuality)]+=cleanSeqLen;
-							Get_5p_base_qual(cleanSeq, cleanQual, clean5pBaseQual[tid], clean5pBaseCounts[tid]);
-							Get_3p_base_qual(cleanSeq, cleanQual, clean3pBaseQual[tid], clean3pBaseCounts[tid]);
+							Get_5p_base_qual(P2In, cleanSeq, cleanQual, clean5pBaseQual[tid], clean5pBaseCounts[tid]);
+							Get_3p_base_qual(P2In, cleanSeq, cleanQual, clean3pBaseQual[tid], clean3pBaseCounts[tid]);
                         }else{
                             Get_base_counts(cleanSeq, cleanBaseCounts[tid]);
-							Get_5p_base_counts(cleanSeq, clean5pBaseCounts[tid]);
-							Get_3p_base_counts(cleanSeq, clean3pBaseCounts[tid]);
+							Get_5p_base_counts(P2In, cleanSeq, clean5pBaseCounts[tid]);
+							Get_3p_base_counts(P2In, cleanSeq, clean3pBaseCounts[tid]);
                         }
-
-                        //
-						outNum++;
 
 						if (passNum>=2){
 							cleanName = newSeqName(rawName, passNum);
 						}else{
 							cleanName=rawName;
 						}
+						
+						passNum++;
+						outNum++;
 
 						if ((P2In->Outfq)==1){
 							cleanOut = "@" + cleanName +"\n" + cleanSeq + "\n+\n" + cleanQual + "\n";
@@ -2313,12 +2438,12 @@ private:
 					double downQuality;
                     downQuality=CalcAvgQuality(downSeq, downQual, downBaseQual[tid], downBaseCounts[tid]);
 					downDiffQualReadsBases[tid][int(downQuality)]+=downSeqLen;
-					Get_5p_base_qual(downSeq, downQual, down5pBaseQual[tid], down5pBaseCounts[tid]);
-					Get_3p_base_qual(downSeq, downQual, down3pBaseQual[tid], down3pBaseCounts[tid]);
+					Get_5p_base_qual(P2In, downSeq, downQual, down5pBaseQual[tid], down5pBaseCounts[tid]);
+					Get_3p_base_qual(P2In, downSeq, downQual, down3pBaseQual[tid], down3pBaseCounts[tid]);
                 }else{
                     Get_base_counts(downSeq, downBaseCounts[tid]);
-					Get_5p_base_counts(downSeq, down5pBaseCounts[tid]);
-					Get_3p_base_counts(downSeq, down3pBaseCounts[tid]);
+					Get_5p_base_counts(P2In, downSeq, down5pBaseCounts[tid]);
+					Get_3p_base_counts(P2In, downSeq, down3pBaseCounts[tid]);
                 }
 
 				string downOut;
@@ -2535,40 +2660,66 @@ void Get_plot_line_data(Para_A24* P2In,
 	std::vector<std::vector<uint64_t>> raw5pBaseQualMerge, raw5pBaseCountsMerge;
 	std::vector<std::vector<uint64_t>> raw3pBaseQualMerge, raw3pBaseCountsMerge;
 
-	rawBaseQualMerge.resize(vecMax, std::vector<uint64_t>(baseNum));
+	int endLen = P2In->BCLen;
+
 	rawBaseCountsMerge.resize(vecMax, std::vector<uint64_t>(baseNum));
-	raw5pBaseQualMerge.resize(150, std::vector<uint64_t>(baseNum));
-	raw5pBaseCountsMerge.resize(150, std::vector<uint64_t>(baseNum));
-	raw3pBaseQualMerge.resize(150, std::vector<uint64_t>(baseNum));
-	raw3pBaseCountsMerge.resize(150, std::vector<uint64_t>(baseNum));
+	raw5pBaseCountsMerge.resize(endLen, std::vector<uint64_t>(baseNum));
+	raw3pBaseCountsMerge.resize(endLen, std::vector<uint64_t>(baseNum));
+
+	rawBaseQualMerge.resize(vecMax, std::vector<uint64_t>(baseNum));
+	raw5pBaseQualMerge.resize(endLen, std::vector<uint64_t>(baseNum));
+	raw3pBaseQualMerge.resize(endLen, std::vector<uint64_t>(baseNum));
 
 	/////////////////////////////////////////merge data from different threads////////////////////////
 	for (int i=0; i<n_threads; i++){
-		for (uint64_t j=0; j<rawBaseQual[i].size();j++){
+		for (uint64_t j=0; j<rawBaseCounts[i].size(); j++){
 			uint64_t lenIndex=lenIndexs[j*100+1];
 			uint64_t vecIndex=vecIndexs[lenIndex];
-			//cerr <<j*100+1 <<" merge "<<lenIndex<<" "<<vecIndex<<endl;
-			for (int x=0; x<rawBaseQual[i][j].size(); x++){
-				rawBaseQualMerge[vecIndex][x]+=rawBaseQual[i][j][x];
+			for (int x=0; x<rawBaseCounts[i][j].size(); x++){
 				rawBaseCountsMerge[vecIndex][x]+=rawBaseCounts[i][j][x];
 			}
 		}
 	}
 
 	for (int i=0; i<n_threads; i++){
-		for (uint64_t j=0; j<raw5pBaseQual[i].size();j++){
-			for (int x=0; x<raw5pBaseQual[i][j].size(); x++){
-				raw5pBaseQualMerge[j][x]+=raw5pBaseQual[i][j][x];
-				raw5pBaseCountsMerge[j][x]+=raw5pBaseCounts[i][j][x];
+		for (uint64_t j=0; j < rawBaseQual[i].size();j++){
+			uint64_t lenIndex=lenIndexs[j*100+1];
+			uint64_t vecIndex=vecIndexs[lenIndex];
+			for (int x=0; x < rawBaseQual[i][j].size(); x++){
+				rawBaseQualMerge[vecIndex][x]+=rawBaseQual[i][j][x];
 			}
 		}
 	}
 
 	for (int i=0; i<n_threads; i++){
-		for (uint64_t j=0; j<raw3pBaseQual[i].size();j++){
-			for (int x=0; x<raw3pBaseQual[i][j].size(); x++){
-				raw3pBaseQualMerge[j][x]+=raw3pBaseQual[i][j][x];
-				raw3pBaseCountsMerge[j][x]+=raw3pBaseCounts[i][j][x];
+		for (uint64_t j = 0; j < raw5pBaseCounts[i].size(); j++){
+			for (int x = 0; x < raw5pBaseCounts[i][j].size(); x++){
+				raw5pBaseCountsMerge[j][x] += raw5pBaseCounts[i][j][x];
+			}
+		}
+	}
+
+	for (int i=0; i<n_threads; i++){
+		for (uint64_t j = 0; j < raw5pBaseQual[i].size();j++){
+			for (int x = 0; x < raw5pBaseQual[i][j].size(); x++){
+				raw5pBaseQualMerge[j][x] += raw5pBaseQual[i][j][x];
+			}
+		}
+	}
+
+	for (int i=0; i < n_threads; i++){
+		for (uint64_t j = 0; j < raw3pBaseCounts[i].size();j++){
+			for (int x = 0; x < raw3pBaseCounts[i][j].size(); x++){
+				raw3pBaseCountsMerge[j][x] += raw3pBaseCounts[i][j][x];
+			}
+		}
+	}
+
+	for (int i=0; i<n_threads; i++){
+		for (uint64_t j = 0; j < raw3pBaseQual[i].size();j++){
+			for (int x = 0; x < raw3pBaseQual[i][j].size(); x++){
+				raw3pBaseQualMerge[j][x] += raw3pBaseQual[i][j][x];
+				raw3pBaseCountsMerge[j][x] += raw3pBaseCounts[i][j][x];
 			}
 		}
 	}
@@ -2620,26 +2771,24 @@ void Get_plot_line_data(Para_A24* P2In,
 	}
 	
 	rawGC = static_cast<float>(rawGCSum*100)/rawBases; // GC content(%)
-	//rawGC = round(rawGC * 100) / 100.0;
     rawMeanQual = static_cast<float>(rawBaseQualSum)/rawBases;
-	//rawMeanQual = round(rawMeanQual * 100) / 100.0;
 
 	////////////////////////////////////read 5p ////////////////////////////////////////////////////
-	raw5pReadsQual.x.resize(150);
+	raw5pReadsQual.x.resize(endLen);
     raw5pReadsQual.y.resize(baseNum);
     for (int i = 0; i < baseNum; ++i) {
         raw5pReadsQual.y[i].bases=bases[i];
-        raw5pReadsQual.y[i].data.resize(150);
+        raw5pReadsQual.y[i].data.resize(endLen);
     }
 
-    raw5pBasesContents.x.resize(150);
+    raw5pBasesContents.x.resize(endLen);
     raw5pBasesContents.y.resize(baseNum-1);
     for (int i = 0; i < baseNum-1; ++i) {
         raw5pBasesContents.y[i].bases=bases[i];
-        raw5pBasesContents.y[i].data.resize(150);
+        raw5pBasesContents.y[i].data.resize(endLen);
     }
 
-	for (int i=0; i < 150; i++){
+	for (int i=0; i < endLen; i++){
 		raw5pReadsQual.x[i] = i+1;
         raw5pBasesContents.x[i] = i+1;
 		for (int j=0; j<baseNum-1; j++){
@@ -2666,21 +2815,21 @@ void Get_plot_line_data(Para_A24* P2In,
 	/////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////read 3p///////////////////////////////////////////////
 	
-	raw3pReadsQual.x.resize(150);
+	raw3pReadsQual.x.resize(endLen);
     raw3pReadsQual.y.resize(baseNum);
     for (int i = 0; i < baseNum; ++i) {
         raw3pReadsQual.y[i].bases=bases[i];
-        raw3pReadsQual.y[i].data.resize(150);
+        raw3pReadsQual.y[i].data.resize(endLen);
     }
     
-    raw3pBasesContents.x.resize(150);
+    raw3pBasesContents.x.resize(endLen);
     raw3pBasesContents.y.resize(baseNum-1);
     for (int i = 0; i < baseNum-1; ++i) {
         raw3pBasesContents.y[i].bases=bases[i];
-        raw3pBasesContents.y[i].data.resize(150);
+        raw3pBasesContents.y[i].data.resize(endLen);
     }
 
-	for (int i=0; i < 150; i++){
+	for (int i=0; i < endLen; i++){
 		raw3pReadsQual.x[i] = i+1;
         raw3pBasesContents.x[i] = i+1;
 		for (int j=0; j<baseNum-1; j++){
@@ -2847,7 +2996,7 @@ int main (int argc, char *argv[ ]) {
 	string htmlFileName=prefix + ".html";
 
 	string OutPath;
-	if (!(P2In->OutFile).empty()) {
+	if (!(P2In->OutFile).empty() && !(P2In->OnlyQC)) {
 		OutPath=(P2In->OutFile);
 		htmlFileName = GetFilePreifx(OutPath) + ".html";
 		P2In->Outfq = GetFileType(OutPath);
@@ -2893,132 +3042,120 @@ int main (int argc, char *argv[ ]) {
 	uint64_t downBases;
 
 	std::vector<std::vector<std::string>> tabInfo(9, std::vector<std::string>(3,"0"));
-	LenDisData rawLenDis, cleanLenDis, downLenDis;
-	QualDisData rawQualDis, cleanQualDis, downQualDis;
+	LenDisData rawLenDis, cleanLenDis;
+	QualDisData rawQualDis, cleanQualDis;
 
 	LinePlotData rawReadsQual, raw5pReadsQual, raw3pReadsQual;
 	LinePlotData cleanReadsQual, clean5pReadsQual, clean3pReadsQual;
-	LinePlotData downReadsQual, down5pReadsQual, down3pReadsQual;
+	
 	LinePlotData rawBasesContents, raw5pBasesContents,raw3pBasesContents;
 	LinePlotData cleanBasesContents, clean5pBasesContents, clean3pBasesContents;
-	LinePlotData downBasesContents, down5pBasesContents, down3pBasesContents;
+	
+	int rawNum, rawMin, rawMax;
+	int cleanNum, cleanMin, cleanMax;
 
 	string downInput;
-	if (P2In->Filter){
+	GetFilterParameterTask Parameter(P2In, adapterLib);
+	Parameter.start();
+	
+	if (P2In->Filter || P2In->OnlyQC){
 		///////////////////////////////////get filter parameter////////////////////////////////////////
-		GetFilterParameterTask Parameter(P2In, adapterLib);
-    	Parameter.start();
-		if ((P2In->HeadTrim)<0){
-			P2In->HeadTrim=Parameter.trim5p;
-		}
-
-		if ((P2In->TailTrim)<0){
-			P2In->TailTrim=Parameter.trim3p;
-		}
-		cerr << "INFO: trim 5' end length: "<<P2In->HeadTrim<<endl;
-		cerr << "INFO: trim 3' end length: "<<P2In->TailTrim<<endl;
-		cerr << "INFO: min output reads length: "<<P2In->MinLen<<endl;
-		if ((P2In->Infq)==1 || (P2In->Infq)==2){
-			cerr << "INFO: base quality scoring: Phred"<<qType<<endl;
-			cerr << "INFO: min Phred average quality score: "<<(P2In->MinQ)<<endl;
-		}
-
-		if (!(P2In->AdapterFile).empty()){
-			Get_adapters(P2In);
-		}else{
-			std::string adapter_5p= Parameter.adapter5p;
-			std::string adapter_3p= Parameter.adapter3p;
-			float depth_5p = Parameter.adapterDep5p;
-			float depth_3p = Parameter.adapterDep3p;
-
-			if (depth_5p > 5*depth_3p){
-				adapter_3p="";
-				depth_3p=0;
-			}else if (depth_3p > 5*depth_5p){
-				adapter_5p="";
-				depth_5p=0;
+		if (P2In->Filter){
+			if ((P2In->HeadTrim)<0){
+				P2In->HeadTrim=Parameter.trim5p;
 			}
 
-			cerr <<"INFO: 5' adapter: " << adapter_5p << endl;
-			cerr <<"INFO: 3' adapter: " << adapter_3p << endl;
-
-			cerr <<"INFO: mean depth of 5' adapter: "<<depth_5p<<endl;
-			cerr <<"INFO: mean depth of 3' adapter: "<<depth_3p<<endl;
-
-			if (P2In->ONLYAD){
-				delete P2In ;
-				return 0;
+			if ((P2In->TailTrim)<0){
+				P2In->TailTrim=Parameter.trim3p;
+			}
+			cerr << "INFO: trim 5' end length: "<<P2In->HeadTrim<<endl;
+			cerr << "INFO: trim 3' end length: "<<P2In->TailTrim<<endl;
+			cerr << "INFO: min output reads length: "<<P2In->MinLen<<endl;
+			if ((P2In->Infq)==1 || (P2In->Infq)==2){
+				cerr << "INFO: min Phred average quality score: "<<(P2In->MinQ)<<endl;
 			}
 
-			if (!adapter_5p.empty()){
-				adapters.insert(adapter_5p);
-				adapters.insert(rev_comp_seq(adapter_5p));
-			}
+			if (!(P2In->AdapterFile).empty()){
+				Get_adapters(P2In);
+			}else{
+				std::string adapter_5p= Parameter.adapter5p;
+				std::string adapter_3p= Parameter.adapter3p;
+				float depth_5p = Parameter.adapterDep5p;
+				float depth_3p = Parameter.adapterDep3p;
 
-			if (!adapter_3p.empty()){
-				adapters.insert(adapter_3p);
-				adapters.insert(rev_comp_seq(adapter_3p));
-			}
+				if (depth_5p > 5*depth_3p){
+					adapter_3p="";
+					depth_3p=0;
+				}else if (depth_3p > 5*depth_5p){
+					adapter_5p="";
+					depth_5p=0;
+				}
 
-			if (adapter_5p.empty() && adapter_3p.empty()){
-				if (P2In->readType == "hifi" || P2In->readType == "clr"){
-					adapters.insert(adapterLib[0]);
-					adapters.insert(adapterLib[1]);
-					cerr <<"INFO: set PacBio blunt adapter to trim: "<<adapterLib[0]<<endl;
-				}else if (P2In->readType == "ont"){
-					adapters.insert(adapterLib[8]);
-					adapters.insert(adapterLib[9]);
-					cerr <<"INFO: set NanoPore rapid adapter to trim: "<<adapterLib[8]<<endl;
+				cerr <<"INFO: 5' adapter: " << adapter_5p << endl;
+				cerr <<"INFO: 3' adapter: " << adapter_3p << endl;
+
+				cerr <<"INFO: mean depth of 5' adapter: "<<depth_5p<<endl;
+				cerr <<"INFO: mean depth of 3' adapter: "<<depth_3p<<endl;
+
+				if (P2In->ONLYAD){
+					delete P2In ;
+					return 0;
+				}
+
+				if (!adapter_5p.empty()){
+					adapters.insert(adapter_5p);
+					adapters.insert(rev_comp_seq(adapter_5p));
+				}
+
+				if (!adapter_3p.empty()){
+					adapters.insert(adapter_3p);
+					adapters.insert(rev_comp_seq(adapter_3p));
+				}
+
+				if (adapter_5p.empty() && adapter_3p.empty()){
+					if (P2In->readType == "hifi" || P2In->readType == "clr"){
+						adapters.insert(adapterLib[0]);
+						adapters.insert(adapterLib[1]);
+						cerr <<"INFO: set PacBio blunt adapter to trim: "<<adapterLib[0]<<endl;
+					}else if (P2In->readType == "ont"){
+						adapters.insert(adapterLib[8]);
+						adapters.insert(adapterLib[9]);
+						cerr <<"INFO: set NanoPore rapid adapter to trim: "<<adapterLib[8]<<endl;
+					}
 				}
 			}
-		}
 
-		////////////////////////////////////////////////////////////////////////////////////////////////
-		if (P2In->Downsample){
-			string rand=generateRandomString(5);
-			if ((P2In->Outfq)==0){
-				P2In->TmpOutFile = prefix + ".tmp." + rand + ".fa";
-			}else if ((P2In->Outfq)==1){
-				P2In->TmpOutFile = prefix + ".tmp."+ rand + ".fq";
+			////////////////////////////////////////////////////////////////////////////////////////////////
+			if (P2In->Downsample){
+				string rand=generateRandomString(5);
+				if ((P2In->Outfq)==0){
+					P2In->TmpOutFile = prefix + ".tmp." + rand + ".fa";
+				}else if ((P2In->Outfq)==1){
+					P2In->TmpOutFile = prefix + ".tmp."+ rand + ".fq";
+				}
+				downInput=P2In->TmpOutFile;
 			}
 		}
 
 		TGSFilterTask task(P2In);
     	task.start();
-		downInput=P2In->TmpOutFile;
 		seqLens=task.seqLens;
 		//
 		/////////////////////////////////////raw table//////////////////////////////////////////
 		
 		rawLens=task.rawLens;
 		rawBases=task.rawBases;
-		int rawNum=rawLens.size();
+		rawNum=rawLens.size();
 		tabInfo[0][0] = std::to_string(rawNum); // reads number befor filtering
 		tabInfo[1][0] = std::to_string(rawBases); // bases number befor filtering
 		std::sort(rawLens.begin(), rawLens.end());
-		int rawMin=rawLens.front();
-		int rawMax=rawLens.back();
+		rawMin=rawLens.front();
+		rawMax=rawLens.back();
 		tabInfo[3][0] = std::to_string(rawMin); // min
 		tabInfo[4][0] = std::to_string(rawMax); // max
 		tabInfo[5][0] = std::to_string(int(rawBases/rawNum)); // mean
 		tabInfo[6][0] = std::to_string(rawLens[int(rawNum/2)]); // median
 		tabInfo[7][0] = std::to_string(Get_N50(rawLens, rawNum, rawBases)); // N50
-		/////////////////////////////////////clean table//////////////////////////////////////////
-		
-		cleanBases=task.cleanBases;
-		cleanLens=task.cleanLens;
-		int cleanNum=cleanLens.size();
-		tabInfo[0][1] = std::to_string(cleanNum); // reads number after filtering
-		tabInfo[1][1] = std::to_string(cleanBases); // bases number after filtering
-		std::sort(cleanLens.begin(), cleanLens.end());
-		int cleanMin=cleanLens.front();
-		int cleanMax=cleanLens.back();
-		tabInfo[3][1] = std::to_string(cleanMin);
-		tabInfo[4][1] = std::to_string(cleanMax);
-		tabInfo[5][1] = std::to_string(int(cleanBases/cleanNum));
-		tabInfo[6][1] = std::to_string(cleanLens[int(cleanNum/2)]);
-		tabInfo[7][1] = std::to_string(Get_N50(cleanLens, cleanNum, cleanBases));
-		
 		////////////////////////////////////////////////raw reads base and qual plot/////////////////////////////////////////
 		
 		float rawGC;
@@ -3032,55 +3169,70 @@ int main (int argc, char *argv[ ]) {
 						task.raw3pBaseQual, task.raw3pBaseCounts);
 		tabInfo[2][0] = limitDecimalPlaces(round(rawGC * 1000) / 1000.0, 3); // GC content (% ,string)
 		tabInfo[8][0] = limitDecimalPlaces(round(rawMeanQual * 1000) / 1000.0, 3); // mean quality
-		////////////////////////////////////////////////clean reads base and qual plot/////////////////////////////////////////
-		
-		float cleanGC;
-		float cleanMeanQual;
-		Get_plot_line_data(P2In, cleanMax, cleanGC, cleanMeanQual, cleanBases,
-                    	cleanReadsQual, cleanBasesContents,
-						clean5pReadsQual, clean5pBasesContents,
-						clean3pReadsQual, clean3pBasesContents,
-                    	task.cleanBaseQual, task.cleanBaseCounts,
-						task.clean5pBaseQual, task.clean5pBaseCounts,
-						task.clean3pBaseQual, task.clean3pBaseCounts);
-		tabInfo[2][1] = limitDecimalPlaces(round(cleanGC * 1000) / 1000.0, 3); // GC content (% ,string)
-		tabInfo[8][1] = limitDecimalPlaces(round(cleanMeanQual * 1000) / 1000.0, 3); // mean quality
-		/////////////////////////////////////Length distribution/////////////////////////////////////////////
-		
 		Get_length_Dis(rawLens, rawLenDis); // raw Length distribution
-		Get_length_Dis(cleanLens, cleanLenDis); // clean Length distribution
-
-		/////////////////////////////////reads with diffeerent quals//////////////////////
-		
 		Get_qual_Dis(task.rawDiffQualReadsBases, rawBases, rawQualDis);
-		Get_qual_Dis(task.cleanDiffQualReadsBases, cleanBases, cleanQualDis);
-		
-		///////////////////////////////////////////////////////下面此处数据不要管///////////////////////////////////////////////////////////////
-		std::vector<uint64_t> DropInfo(13,0);
+
+		cleanBases=task.cleanBases;
+		cleanLens=task.cleanLens;
+		cleanNum=cleanLens.size();
+		if (!(P2In->OnlyQC) && !(P2In->Downsample)){
+			/////////////////////////////////////clean table//////////////////////////////////////////
+			tabInfo[0][1] = std::to_string(cleanNum); // reads number after filtering
+			tabInfo[1][1] = std::to_string(cleanBases); // bases number after filtering
+			std::sort(cleanLens.begin(), cleanLens.end());
+			cleanMin=cleanLens.front();
+			cleanMax=cleanLens.back();
+			tabInfo[3][1] = std::to_string(cleanMin);
+			tabInfo[4][1] = std::to_string(cleanMax);
+			tabInfo[5][1] = std::to_string(int(cleanBases/cleanNum));
+			tabInfo[6][1] = std::to_string(cleanLens[int(cleanNum/2)]);
+			tabInfo[7][1] = std::to_string(Get_N50(cleanLens, cleanNum, cleanBases));
+			
+			////////////////////////////////////////////////clean reads base and qual plot/////////////////////////////////////////
+			
+			float cleanGC;
+			float cleanMeanQual;
+			Get_plot_line_data(P2In, cleanMax, cleanGC, cleanMeanQual, cleanBases,
+							cleanReadsQual, cleanBasesContents,
+							clean5pReadsQual, clean5pBasesContents,
+							clean3pReadsQual, clean3pBasesContents,
+							task.cleanBaseQual, task.cleanBaseCounts,
+							task.clean5pBaseQual, task.clean5pBaseCounts,
+							task.clean3pBaseQual, task.clean3pBaseCounts);
+			tabInfo[2][1] = limitDecimalPlaces(round(cleanGC * 1000) / 1000.0, 3); // GC content (% ,string)
+			tabInfo[8][1] = limitDecimalPlaces(round(cleanMeanQual * 1000) / 1000.0, 3); // mean quality
+			Get_length_Dis(cleanLens, cleanLenDis); // clean Length distribution
+			Get_qual_Dis(task.cleanDiffQualReadsBases, cleanBases, cleanQualDis);
+		}
+		//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		std::vector<uint64_t> DropInfo(17,0);
 		for (int i = 0; i < P2In->n_thread; ++i) {
-			for (int j =0; j < 13; ++j){
+			for (int j =0; j < 17; ++j){
 				DropInfo[j]+=task.DropInfo[i][j];
 			}
     	}
 		cerr << "INFO: "<< rawNum <<" reads with a total of "<<rawBases<<" bases were input."<<endl;
-		cerr << "INFO: "<< DropInfo[0] <<" reads were discarded with "<<DropInfo[1]<<" bases due to low quality."<<endl;
-		cerr << "INFO: "<< DropInfo[2] <<" reads have adapter at 5', 3' and middle."<<endl;
-		cerr << "INFO: "<< DropInfo[3] <<" reads have adapter at 5' and middle."<<endl;
-		cerr << "INFO: "<< DropInfo[4] <<" reads have adapter at 3' and middle."<<endl;
-		cerr << "INFO: "<< DropInfo[5] <<" reads have adapter at 5' and 3' end."<<endl;
-		cerr << "INFO: "<< DropInfo[6] <<" reads only have adapter at middle."<<endl;
-		cerr << "INFO: "<< DropInfo[7] <<" reads only have adapter at 5' end."<<endl;
-		cerr << "INFO: "<< DropInfo[8] <<" reads only have adapter at 3' end."<<endl;
-		cerr << "INFO: "<< DropInfo[9] <<" reads didn't have any adapter."<<endl;
-		cerr << "INFO: "<< DropInfo[10] <<" bases were trimmed due to the adapter or base content bias."<<endl;
-		cerr << "INFO: "<< DropInfo[11] <<" reads were discarded with "<<DropInfo[12]<<" bases due to the short length before output."<<endl;
-		cerr << "INFO: "<< cleanNum <<" reads with a total of "<<cleanBases<<" bases after filtering."<<endl;
-		if (!(P2In->Downsample) && !(P2In->OutFile).empty()){
-			cerr << "INFO: Filtered reads were written to: "<<P2In->OutFile<<"."<<endl;
+		if (!(P2In->OnlyQC)){
+			cerr << "INFO: "<< DropInfo[0] <<" reads were discarded with "<<DropInfo[1]<<" bases due to low quality."<<endl;
+			cerr << "INFO: "<< DropInfo[2] <<" reads have adapter at 5', 3' and middle."<<endl;
+			cerr << "INFO: "<< DropInfo[3] <<" reads have adapter at 5' and middle."<<endl;
+			cerr << "INFO: "<< DropInfo[4] <<" reads have adapter at 3' and middle."<<endl;
+			cerr << "INFO: "<< DropInfo[5] <<" reads have adapter at 5' and 3' end."<<endl;
+			cerr << "INFO: "<< DropInfo[6] <<" reads only have adapter at middle."<<endl;
+			cerr << "INFO: "<< DropInfo[7] <<" reads only have adapter at 5' end."<<endl;
+			cerr << "INFO: "<< DropInfo[8] <<" reads only have adapter at 3' end."<<endl;
+			cerr << "INFO: "<< DropInfo[9] <<" reads didn't have any adapter."<<endl;
+			cerr << "INFO: "<< DropInfo[10] <<" bases were trimmed due to the adapter or base content bias."<<endl;
+			cerr << "INFO: "<< DropInfo[11] <<" reads were discarded with "<<DropInfo[12]<<" bases due to the short length."<<endl;
+			cerr << "INFO: "<< DropInfo[13] <<" reads were discarded with "<<DropInfo[14]<<" bases due to low quality after split."<<endl;
+			if ((P2In->MinRepeat) > 0){
+				cerr << "INFO: "<< DropInfo[15] <<" reads were discarded with "<<DropInfo[16]<<" bases due to short repeat length."<<endl;
+			}
+			cerr << "INFO: "<< cleanNum <<" reads with a total of "<<cleanBases<<" bases after filtering."<<endl;
+			if (!(P2In->Downsample) && !(P2In->OutFile).empty()){
+				cerr << "INFO: Filtered reads were written to: "<<P2In->OutFile<<"."<<endl;
+			}
 		}
-		
-		///////////////////////////////////////////////////////上面此处数据不要管//////////////////////////////////////////////////////////////////////////////
-
 	} else {
 		downInput=P2In->InFile;
 	}
@@ -3089,42 +3241,38 @@ int main (int argc, char *argv[ ]) {
 		DownSampleTask task(P2In, downInput, seqLens);
     	task.start();
 		////////////////////////////////////////down table/////////////////////////////////////////
-		downBases=task.downBases;
-		downLens=task.downLens;
-		int downNum=downLens.size();
-		tabInfo[0][2] = std::to_string(downNum); // reads number after filtering
-		tabInfo[1][2] = std::to_string(downBases); // bases number after filtering
-		std::sort(downLens.begin(), downLens.end());
-		int downMin=downLens.front();
-		int downMax=downLens.back();
-		tabInfo[3][2] = std::to_string(downMin);
-		tabInfo[4][2] = std::to_string(downMax);
-		tabInfo[5][2] = std::to_string(int(downBases/downNum));
-		tabInfo[6][2] = std::to_string(downLens[int(downNum/2)]);
-		tabInfo[7][2] = std::to_string(Get_N50(downLens, downNum, downBases));
+		cleanBases=task.downBases;
+		cleanLens=task.downLens;
+		cleanNum=cleanLens.size();
+		tabInfo[0][1] = std::to_string(cleanNum); // reads number after filtering
+		tabInfo[1][1] = std::to_string(cleanBases); // bases number after filtering
+		std::sort(cleanLens.begin(), cleanLens.end());
+		cleanMin=cleanLens.front();
+		cleanMax=cleanLens.back();
+		tabInfo[3][1] = std::to_string(cleanMin);
+		tabInfo[4][1] = std::to_string(cleanMax);
+		tabInfo[5][1] = std::to_string(int(cleanBases/cleanNum));
+		tabInfo[6][1] = std::to_string(cleanLens[int(cleanNum/2)]);
+		tabInfo[7][1] = std::to_string(Get_N50(cleanLens, cleanNum, cleanBases));
 		//
-		float downGC;
-		float downMeanQual;
-		Get_plot_line_data(P2In, downMax, downGC, downMeanQual, downBases,
-                    	downReadsQual, downBasesContents,
-						down5pReadsQual, down5pBasesContents,
-						down3pReadsQual, down3pBasesContents,
+		float cleanGC;
+		float cleanMeanQual;
+		Get_plot_line_data(P2In, cleanMax, cleanGC, cleanMeanQual, cleanBases,
+                    	cleanReadsQual, cleanBasesContents,
+						clean5pReadsQual, clean5pBasesContents,
+						clean3pReadsQual, clean3pBasesContents,
                     	task.downBaseQual, task.downBaseCounts,
 						task.down5pBaseQual, task.down5pBaseCounts,
 						task.down3pBaseQual, task.down3pBaseCounts);
-		tabInfo[2][2] = limitDecimalPlaces(round(downGC * 1000) / 1000.0, 3); // GC content (% ,string)
-		tabInfo[8][2] = limitDecimalPlaces(round(downMeanQual * 1000) / 1000.0, 2); // mean quality
-		////////////////////////////////down Length distribution////////////////////////////////////
-		Get_length_Dis(downLens, downLenDis);
-
-		/////////////////////////////////down reads with diffeerent quals//////////////////////
-
-		Get_qual_Dis(task.downDiffQualReadsBases, downBases, downQualDis);
+		tabInfo[2][1] = limitDecimalPlaces(round(cleanGC * 1000) / 1000.0, 3); // GC content (% ,string)
+		tabInfo[8][1] = limitDecimalPlaces(round(cleanMeanQual * 1000) / 1000.0, 2); // mean quality
+		Get_length_Dis(cleanLens, cleanLenDis);
+		Get_qual_Dis(task.downDiffQualReadsBases, cleanBases, cleanQualDis);
 		///////////////////////////////////////////////////////////////////////////////////////
 		if (!(P2In->Filter)){
 			cerr << "INFO: "<< task.downInNum <<" reads with a total of "<< task.downInBases <<" bases were input."<<endl;
 		}
-		cerr << "INFO: "<< downNum <<" reads with a total of "<<downBases<<" bases after downsampling."<<endl;
+		cerr << "INFO: "<< cleanNum <<" reads with a total of "<<cleanBases<<" bases after downsampling."<<endl;
 		if (!(P2In->OutFile).empty()){
 			cerr << "INFO: Downsampled reads were written to: "<<P2In->OutFile<<"."<<endl;
 		}
@@ -3133,48 +3281,24 @@ int main (int argc, char *argv[ ]) {
 	if (!(P2In->TmpOutFile).empty()){
 		remove((P2In->TmpOutFile).c_str());
 	}
-	
-		ofstream ofs(htmlFileName);
-	
-	if (P2In->Filter && P2In->Downsample) {
-		/// 三列都输出
-		ThreePlotData plotData = {
-			downLenDis,
-			cleanLenDis,
-			rawLenDis,
-			rawQualDis,
-			cleanQualDis,
-			downQualDis,
-			downReadsQual,
-			down5pReadsQual,
-			down3pReadsQual,
-			downBasesContents,
-			down5pBasesContents,
-			down3pBasesContents,
-			rawReadsQual,
-			cleanReadsQual,
-			raw5pReadsQual,
-			clean5pReadsQual,
-			raw3pReadsQual,
-			clean3pReadsQual,
-			rawBasesContents,
-			cleanBasesContents,
-			raw5pBasesContents,
-			clean5pBasesContents,
-			raw3pBasesContents,
-			clean3pBasesContents,
-		};
-		genHTMLReport(
-			ofs, 3,
-			[&tabInfo](ofstream &oofs)
-			{ genTable(oofs, 3, tabInfo); },
-			[&plotData](ofstream &oofs)
-			{ genPlotData(oofs, plotData); });
+
+	//get quality control report type
+	string qcType;
+	if (P2In->Infq==0){
+		qcType += "0"; //fasta
+	}else if (P2In->Infq==1 || P2In->Infq==2){
+		qcType += "1"; //fastq
 	}
-	else if (P2In->Filter && !(P2In->Downsample))
-	{
-		/// 输出第1和第2列
-		TwoPlotData plotData = {
+
+	if (P2In->OnlyQC){
+		qcType += "0";
+	}else if (!(P2In->Filter) && P2In->Downsample){
+		qcType += "1";
+	}else if (P2In->Filter && !(P2In->OnlyQC)){
+		qcType += "2";
+	}
+
+	PlotData plotData = {
 			rawLenDis,
 			cleanLenDis,
 			rawQualDis,
@@ -3191,34 +3315,17 @@ int main (int argc, char *argv[ ]) {
 			clean5pBasesContents,
 			raw3pBasesContents,
 			clean3pBasesContents};
-		genHTMLReport(
-			ofs, 2,
-			[&tabInfo](ofstream &oofs)
-			{ genTable(oofs, 2, tabInfo); },
-			[&plotData](ofstream &oofs)
-			{ genPlotData(oofs, plotData); });
-	}
-	else if (!(P2In->Filter) && P2In->Downsample)
-	{
-		/// 只输出第3列
-		OnePlotData plotData = {
-			downLenDis,
-			downQualDis,
-			downReadsQual,
-			downBasesContents,
-			down5pReadsQual,
-			down5pBasesContents,
-			down3pReadsQual,
-			down3pBasesContents};
-		genHTMLReport(
-			ofs, 1,
-			[&tabInfo](ofstream &oofs)
-			{ genTable(oofs, 1, tabInfo); },
-			[&plotData](ofstream &oofs)
-			{ genPlotData(oofs, plotData); });
-	}
+
+	//output html
+	ofstream ofs(htmlFileName);
+	genHTMLReport(
+		ofs, qcType,
+		[&tabInfo, &qcType](ofstream &oofs) { genTable(oofs, qcType, tabInfo); },
+		[&plotData, &qcType](ofstream &oofs) { genPlotData(oofs, qcType, plotData);}
+	);
+
 	ofs.close();
-	cerr << "INFO: Quality control report was written to: "<<htmlFileName<<endl;
+	cerr << "INFO: Quality control report was written to: "<<htmlFileName<<"."<<endl;
 	
 	delete P2In ;
 	return 0;
