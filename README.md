@@ -4,9 +4,9 @@
 ##  1. Install
 ### (1) Pre-built binaries for x86_64 Linux
 ```
-wget -c https://github.com/HuiyangYu/TGSFilter/releases/download/v1.10/TGSFilter-1.10-Linux-x86_64.tar.gz
-tar zvxf TGSFilter-1.10-Linux-x86_64.tar.gz
-cd TGSFilter-1.10-Linux-x86_64
+wget -c https://github.com/HuiyangYu/TGSFilter/releases/download/v1.11/TGSFilter-1.11-Linux-x86_64.tar.gz
+tar zvxf TGSFilter-1.11-Linux-x86_64.tar.gz
+cd TGSFilter-1.11-Linux-x86_64
 ./tgsfilter -h
 ```
 ### (2) Building from source （Linux or Mac）
