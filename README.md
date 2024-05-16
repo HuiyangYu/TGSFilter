@@ -19,43 +19,46 @@ cd bin
 ```
 ## 2. Usage
 ```
-Usage: tgsfilter -i TGS.raw.fq.gz -o TGS.clean.fq.gz
+Usage: tgsfilter -i TGS.raw.fq.gz -x ont -o TGS.clean.fq.gz
  Input/Output options:
-   -i  <str>   input of bam/fasta/fastq file
-   -o  <str>   output of fasta/fastq file instead of stdout
+   -i   <str>   input of bam/fasta/fastq file
+   -x   <str>   read type (ont|clr|hifi)
+   -o   <str>   output of fasta/fastq file instead of stdout
  Basic filter options:
-   -l  <int>   min length of read to out [1000]
-   -L  <int>   max length of read to out
-   -q <float>  min Phred average quality score
-   -Q <float>  max Phred average quality score
-   -n  <int>   read number for base content check [100000]
-   -e  <int>   read end length for base content check [150]
-   -b <float>  bias (%) of adjacent base content at read end [1]
-   -5  <int>   trim bases from the 5' end of the read [auto]
-   -3  <int>   trim bases from the 3' end of the read [auto]
+   -l   <int>   min length of read to out [1000]
+   -L   <int>   max length of read to out
+   -q  <float>  min Phred average quality score
+   -Q  <float>  max Phred average quality score
+   -n   <int>   read number for base content check [100000]
+   -e   <int>   read end length for base content check [150]
+   -b  <float>  bias (%) of adjacent base content at read end [1]
+   -5   <int>   trim bases from the 5' end of the read
+   -3   <int>   trim bases from the 3' end of the read
  Adapter filter options:
-   -a  <str>   adapter sequence file 
-   -A          disable reads filter, only for adapter identify
-   -N  <int>   read number for adapter identify [100000]
-   -E  <int>   read end length for adapter trim [150]
-   -m  <int>   min match length for end adapter [15]
-   -M  <int>   min match length for middle adapter [35]
-   -T  <int>   extra trim length for middle adpter on both side [50]
-   -s <float>  min similarity for end adapter [0.75]
-   -S <float>  min similarity for middle adapter [0.9]
-   -D          discard reads with middle adapter instead of split
+   -a   <str>   adapter sequence file 
+   -A           disable reads filter, only for adapter identify
+   -N   <int>   read number for adapter identify [100000]
+   -E   <int>   read end length for adapter trim [150]
+   -m   <int>   min match length for end adapter [15]
+   -M   <int>   min match length for middle adapter [35]
+   -T   <int>   extra trim length for middle adpter on both side [50]
+   -s  <float>  min similarity for end adapter
+   -S  <float>  min similarity for middle adapter
+   -D           discard reads with middle adapter instead of split
  Downsampling options:
-   -g  <str>   genome size (k/m/g)
-   -d  <int>   downsample to the desired coverage (requires -g) 
-   -r  <int>   downsample to the desired number of reads 
-   -R <float>  downsample to the desired fraction of reads 
-   -F          disable reads filter, only for downsampling
+   -g   <str>   genome size (k/m/g)
+   -d   <int>   downsample to the desired coverage (requires -g) 
+   -r   <int>   downsample to the desired number of reads 
+   -R  <float>  downsample to the desired fraction of reads 
+   -k   <int>   kmer size for repeat evaluations [11] 
+   -p   <int>   min repeat length of reads [0] 
+   -F           disable reads filter, only for downsampling
  Other options:
-   -c  <int>   compression level (0-9) for compressed output [6]
-   -f          force FASTA output (discard quality) 
-   -x  <str>   read type (ont|clr|hifi)
-   -t  <int>   number of threads [16]
-   -h          show help [v1.10]
+   --qc         disable all filter, only for quality control 
+   -f           force FASTA output (discard quality) 
+   -c   <int>   compression level (0-9) for compressed output [6]
+   -t   <int>   number of threads [16]
+   -h           show help [v1.11]
 ```
 ## 3. Example
 
