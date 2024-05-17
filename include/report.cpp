@@ -680,7 +680,7 @@ void genHTMLReport(ofstream &ofs, string &qcType, function<void(ofstream &ofs)> 
     genTable(ofs);
     ofs << "</div>\n";
 
-    // 生成html片段, qcType: 00, 01, 02 for fasta, 11, 12, 13 for fastq
+    // 生成html片段, qcType: 00, 01, 02 for fasta, 10, 11, 12 for fastq
     vector<Selection> selectionData = getSelectionsData(qcType);
     for (Selection selection : selectionData)
     {
